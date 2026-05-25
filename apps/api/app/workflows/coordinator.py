@@ -52,10 +52,11 @@ async def agent_execute(state: CoordinatorState):
     else:
         # Default action
         tool_calls.append({"tool": "gmail.search", "payload": {"query": "is:unread"}})
-        
+    
     if state.get("workflow_step_id"):
         async with AsyncSessionLocal() as db:
             event = WorkflowEvent(
+                workflow_run_id=uuid.UUID(state["workflow_run_id"]),
                 workflow_step_id=uuid.UUID(state["workflow_step_id"]),
                 event_type="agent_decision",
                 payload={"tool_calls": tool_calls}
@@ -66,52 +67,61 @@ async def agent_execute(state: CoordinatorState):
     return {"tool_calls": tool_calls}
 
 async def check_policy(state: CoordinatorState):
-    """Checks if tool calls require human approval based on ToolPolicy (mocked)"""
-    # For MVP: let's pretend "gmail.send" requires approval, "web.search" does not
-    # In a real app we would query ToolPolicy table
-    needs_approval = False
-    risk = "LOW"
+    """Real implementation of Policy Engine: checks DB for ToolPolicy"""
+    from apps.api.app.db.models.policy import ToolPolicy
+    from sqlalchemy import select
     
-    for tc in state.get("tool_calls", []):
-        tool_name = tc["tool"]
-        if tool_name == "gmail.send":
-            needs_approval = True
-            risk = "HIGH"
-            tool_call = tc
-            break
-
-    if needs_approval:
-        async with AsyncSessionLocal() as db:
-            agent_uuid = uuid.UUID(state["coordinator_agent_id"]) if state.get("coordinator_agent_id") else uuid.uuid4()
-            approval = PendingApproval(
-                workspace_id=uuid.UUID(state["workspace_id"]),
-                workflow_run_id=uuid.UUID(state["workflow_run_id"]),
-                tool_call_id=str(uuid.uuid4()), # idempotency_key equivalent
-                agent_id=agent_uuid,
-                risk_level=risk,
-                action_type=tool_name,
-                payload_preview=tool_call["payload"],
-                status="pending"
-            )
-            db.add(approval)
+    tool_calls = state.get("tool_calls", [])
+    if not tool_calls:
+        return {"status": "completed"}
+        
+    async with AsyncSessionLocal() as db:
+        for tc in tool_calls:
+            tool_name = tc["tool"]
             
-            if state.get("workflow_step_id"):
-                event = WorkflowEvent(
-                    workflow_step_id=uuid.UUID(state["workflow_step_id"]),
-                    event_type="paused_for_approval",
-                    payload={"approval_id": str(approval.id), "tool": tool_name}
+            # Query ToolPolicy from DB for this workspace
+            result = await db.execute(
+                select(ToolPolicy).where(
+                    ToolPolicy.workspace_id == uuid.UUID(state["workspace_id"]),
+                    ToolPolicy.tool_name == tool_name
                 )
-                db.add(event)
+            )
+            policy = result.scalar_one_or_none()
+            
+            approval_required = "approval_optional" # default fallback if not specified
+            if policy:
+                approval_required = policy.approval_required
                 
-            await db.commit()
-            await db.refresh(approval)
-            
-            return {
-                "status": "paused_for_approval",
-                "pending_approval_id": str(approval.id)
-            }
-            
-    return {"status": "running"}
+            if approval_required == "approval_required":
+                # Create pending approval
+                approval = PendingApproval(
+                    workspace_id=uuid.UUID(state["workspace_id"]),
+                    workflow_run_id=uuid.UUID(state["workflow_run_id"]),
+                    tool_call_id=str(uuid.uuid4()),
+                    agent_id=uuid.UUID(state["current_agent_id"]),
+                    user_id=uuid.UUID(state["user_id"]) if state.get("user_id") else None,
+                    risk_level=policy.risk_level if policy else "HIGH",
+                    action_type=tool_name,
+                    payload_preview=tc["payload"],
+                    status="pending"
+                )
+                db.add(approval)
+                
+                if state.get("workflow_step_id"):
+                    event = WorkflowEvent(
+                        workflow_run_id=uuid.UUID(state["workflow_run_id"]),
+                        workflow_step_id=uuid.UUID(state["workflow_step_id"]),
+                        event_type="paused_for_approval",
+                        payload={"approval_id": str(approval.id), "tool": tool_name}
+                    )
+                    db.add(event)
+                    
+                await db.commit()
+                await db.refresh(approval)
+                
+                return {"status": "paused", "pending_approval_id": str(approval.id)}
+                
+    return {"status": "approved"}
 
 def route_after_policy(state: CoordinatorState):
     if state["status"] == "paused_for_approval":
@@ -141,6 +151,7 @@ async def execute_tools(state: CoordinatorState):
             if step:
                 step.status = "completed"
                 event = WorkflowEvent(
+                    workflow_run_id=uuid.UUID(state["workflow_run_id"]),
                     workflow_step_id=step.id,
                     event_type="tools_executed",
                     payload={"results": results}
