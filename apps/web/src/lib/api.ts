@@ -74,3 +74,14 @@ export const rejectAction = async (approvalId: string) => {
   const response = await api.post(`/api/v1/approvals/${approvalId}/reject`);
   return response.data;
 };
+
+// Artifact endpoints
+export const getArtifacts = async () => {
+  const response = await api.get('/api/v1/artifacts');
+  return response.data;
+};
+
+export const getArtifact = async (artifactId: string) => {
+  const response = await api.get(`/api/v1/artifacts/${artifactId}`);
+  return response.data;
+};

@@ -3,13 +3,14 @@ from typing import Any, Dict
 from .base import BaseAdapter
 
 class MockSearchAdapter(BaseAdapter):
-    async def execute(self, payload: Dict[str, Any]) -> Any:
+    async def execute(self, payload: Dict[str, Any], context: Dict[str, Any] = None) -> Any:
         query = payload.get("query", "unknown")
         await asyncio.sleep(1) # simulate latency
         return f"Searched for {query}. Found mock results."
 
 class MockGmailAdapter(BaseAdapter):
-    async def execute(self, payload: Dict[str, Any]) -> Any:
+    async def execute(self, payload: Dict[str, Any], context: Dict[str, Any] = None) -> Any:
+        # Mock logic
         action = payload.get("action", "send")
         await asyncio.sleep(1)
         if action == "send":

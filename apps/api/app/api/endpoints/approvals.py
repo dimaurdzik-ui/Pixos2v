@@ -45,7 +45,11 @@ async def approve_tool(
     from apps.api.app.services.tools.gateway import ToolGateway
     
     try:
-        tool_result = await ToolGateway.execute(approval.action_type, approval.payload_preview or {})
+        context = {
+            "workspace_id": str(approval.workspace_id),
+            "workflow_run_id": str(approval.workflow_run_id) if approval.workflow_run_id else None
+        }
+        tool_result = await ToolGateway.execute(approval.action_type, approval.payload_preview or {}, context)
     except Exception as e:
         tool_result = f"Error executing tool: {str(e)}"
         

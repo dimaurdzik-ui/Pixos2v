@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apps.api.app.core.config import settings
-from apps.api.app.api.endpoints import workflows, approvals
+from apps.api.app.api.endpoints import workflows, approvals, artifacts
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -20,6 +20,7 @@ app.add_middleware(
 
 app.include_router(workflows.router, prefix=settings.API_V1_STR + "/workflows", tags=["workflows"])
 app.include_router(approvals.router, prefix=settings.API_V1_STR + "/approvals", tags=["approvals"])
+app.include_router(artifacts.router, prefix=settings.API_V1_STR + "/artifacts", tags=["artifacts"])
 
 @app.get("/")
 def read_root():

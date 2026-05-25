@@ -1,7 +1,9 @@
 from typing import Type, Dict, Any, Optional
 from pydantic import BaseModel
+from pydantic import BaseModel
 from .base import BaseAdapter
 from .mock import MockSearchAdapter, MockGmailAdapter
+from .artifacts import ArtifactsAdapter
 
 class ToolDefinition(BaseModel):
     name: str
@@ -91,4 +93,20 @@ ToolRegistry.register(ToolDefinition(
         "required": ["query"]
     },
     adapter_cls=MockGmailAdapter
+))
+
+ToolRegistry.register(ToolDefinition(
+    name="artifacts.save",
+    description="Save a markdown document, report, or code snippet as an artifact.",
+    default_risk_level="LOW",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Title or filename for the artifact"},
+            "content": {"type": "string", "description": "The markdown content of the artifact"},
+            "artifact_type": {"type": "string", "description": "Type of content, usually 'markdown' or 'code'"}
+        },
+        "required": ["name", "content"]
+    },
+    adapter_cls=ArtifactsAdapter
 ))

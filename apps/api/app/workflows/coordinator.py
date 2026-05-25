@@ -191,7 +191,11 @@ async def execute_tools(state: CoordinatorState):
         tool = tc["tool"]
         try:
             # Delegate execution to the ToolGateway
-            tool_result = await ToolGateway.execute(tool, tc.get("payload", {}))
+            context = {
+                "workspace_id": state.get("workspace_id"),
+                "workflow_run_id": state.get("workflow_run_id")
+            }
+            tool_result = await ToolGateway.execute(tool, tc.get("payload", {}), context)
         except Exception as e:
             tool_result = f"Error executing tool {tool}: {str(e)}"
             

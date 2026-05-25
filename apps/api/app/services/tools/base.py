@@ -3,5 +3,5 @@ from typing import Any, Dict
 
 class BaseAdapter(ABC):
     @abstractmethod
-    async def execute(self, payload: Dict[str, Any]) -> Any:
+    async def execute(self, payload: Dict[str, Any], context: Dict[str, Any] = None) -> Any:
         pass
