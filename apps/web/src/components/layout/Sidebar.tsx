@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { UserButton, SignedIn, SignedOut, SignInButton } from '@clerk/nextjs';
+import { UserButton, SignInButton, useUser } from '@clerk/nextjs';
 import { 
   Briefcase, 
   Users, 
@@ -34,6 +34,7 @@ const secondaryNavigation = [
 
 export function Sidebar() {
   const pathname = usePathname() || '';
+  const { isSignedIn, isLoaded } = useUser();
 
   return (
     <div className="flex flex-col w-64 bg-sidebar border-r border-border h-screen">
@@ -100,18 +101,18 @@ export function Sidebar() {
         </div>
       </div>
       <div className="p-4 border-t border-border bg-sidebar flex items-center justify-between">
-        <SignedIn>
+        {isLoaded && isSignedIn && (
           <div className="flex items-center gap-3 w-full">
             <UserButton showName appearance={{ elements: { userButtonBox: "flex-row-reverse" } }} />
           </div>
-        </SignedIn>
-        <SignedOut>
+        )}
+        {isLoaded && !isSignedIn && (
           <SignInButton mode="modal">
             <button className="text-sm font-medium text-sidebar-foreground hover:text-white transition-colors">
               Sign In
             </button>
           </SignInButton>
-        </SignedOut>
+        )}
       </div>
     </div>
   );
