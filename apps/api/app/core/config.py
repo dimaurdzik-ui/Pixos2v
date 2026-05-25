@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str
 
+    # Environment
+    ENVIRONMENT: str = "development" # development, production
+    
     # CORS
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
 
@@ -30,5 +33,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    
+    def model_post_init(self, __context: type) -> None:
+        if self.ENVIRONMENT == "production" and self.MOCK_TOOLS is True:
+            raise ValueError("Cannot run with MOCK_TOOLS=True in production environment")
 
 settings = Settings()

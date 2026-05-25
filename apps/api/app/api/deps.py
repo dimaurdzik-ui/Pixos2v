@@ -9,6 +9,7 @@ from apps.api.app.db.models.core import User, Workspace, WorkspaceMember
 
 import json
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from apps.api.app.core.config import settings
 
 security = HTTPBearer()
 
@@ -16,6 +17,12 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db)
 ) -> User:
+    if settings.ENVIRONMENT == "production":
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Mock Auth is strictly forbidden in production. Implement real JWT logic."
+        )
+
     token = credentials.credentials
     # For MVP, we use the token directly as the email (e.g. "admin@pixos.ai")
     # In production, replace with:
@@ -63,12 +70,36 @@ async def get_current_workspace(
         
     return workspace
 
-def require_permission(required_role: str):
+ROLE_PERMISSIONS = {
+    "owner": [
+        "manage_workspace", "manage_members", "manage_billing", "manage_agents", 
+        "manage_teams", "manage_integrations", "run_workflows", "approve_actions", 
+        "view_artifacts", "view_audit_logs", "manage_tool_policies"
+    ],
+    "admin": [
+        "manage_agents", "manage_teams", "manage_integrations", "approve_actions",
+        "view_artifacts", "view_audit_logs", "run_workflows"
+    ],
+    "manager": [
+        "run_workflows", "approve_actions", "view_artifacts"
+    ],
+    "member": [
+        "run_workflows", "view_artifacts"
+    ],
+    "viewer": [
+        "view_artifacts"
+    ]
+}
+
+def require_permission(required_permission: str):
     async def permission_checker(
         workspace: Workspace = Depends(get_current_workspace),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
     ):
+        if current_user.is_super_admin:
+            return True
+            
         result = await db.execute(
             select(WorkspaceMember)
             .where(
@@ -77,7 +108,15 @@ def require_permission(required_role: str):
             )
         )
         membership = result.scalar_one_or_none()
-        if not membership or membership.role.value != required_role:
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Requires {required_role} role")
+        
+        if not membership:
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a workspace member")
+             
+        user_role = membership.role.value
+        allowed_permissions = ROLE_PERMISSIONS.get(user_role, [])
+        
+        if required_permission not in allowed_permissions:
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Requires {required_permission} permission")
+             
         return True
     return permission_checker

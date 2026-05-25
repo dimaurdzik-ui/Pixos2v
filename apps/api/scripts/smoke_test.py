@@ -35,14 +35,22 @@ async def test():
         db.add(run)
         await db.commit()
         
-        # 4. Invoke the workflow
+        from sqlalchemy import select
+        from apps.api.app.db.models.agents import Agent
+        
+        result = await db.execute(select(Agent).where(Agent.workspace_id == ws.id, Agent.is_coordinator == True))
+        coordinator = result.scalar_one_or_none()
+        if not coordinator:
+            print("Coordinator not seeded properly.")
+            return
+            
         initial_state = {
             "workflow_run_id": str(run.id),
             "task_id": str(task.id),
             "workspace_id": str(ws.id),
             "user_id": str(ws.id), # mock user_id
-            "coordinator_agent_id": "11111111-1111-1111-1111-111111111111",
-            "current_agent_id": "11111111-1111-1111-1111-111111111111",
+            "coordinator_agent_id": str(coordinator.id),
+            "current_agent_id": str(coordinator.id),
             "user_request": task.description,
             "current_step": 0,
             "results": [],

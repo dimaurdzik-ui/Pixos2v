@@ -146,7 +146,7 @@ async def check_policy(state: CoordinatorState):
                     workflow_run_id=uuid.UUID(state["workflow_run_id"]),
                     tool_call_id=str(uuid.uuid4()),
                     agent_id=uuid.UUID(state["current_agent_id"]),
-                    user_id=uuid.UUID(state["user_id"]) if state.get("user_id") else None,
+                    requested_by=uuid.UUID(state["user_id"]) if state.get("user_id") else None,
                     risk_level=policy.risk_level if policy else "HIGH",
                     action_type=tool_name,
                     payload_preview=tc["payload"],
@@ -166,13 +166,13 @@ async def check_policy(state: CoordinatorState):
                 await db.commit()
                 await db.refresh(approval)
                 
-                return {"status": "paused", "pending_approval_id": str(approval.id)}
+                return {"status": "paused_for_approval", "pending_approval_id": str(approval.id)}
                 
     return {"status": "approved"}
 
 def route_after_policy(state: CoordinatorState):
     if state["status"] == "paused_for_approval":
-        return "pause"
+        return "END"
     return "execute_tools"
 
 async def execute_tools(state: CoordinatorState):

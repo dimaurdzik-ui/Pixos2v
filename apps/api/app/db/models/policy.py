@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, ForeignKey, JSON, DateTime
+from sqlalchemy import Column, String, ForeignKey, JSON, DateTime, Integer, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from .base import Base, TimestampMixin
 
@@ -10,6 +10,11 @@ class ToolPolicy(Base, TimestampMixin):
     tool_name = Column(String, nullable=False)
     risk_level = Column(String, nullable=False) # e.g. READ, DRAFT, EXTERNAL_WRITE
     approval_required = Column(String, nullable=False) # auto, approval_optional, approval_required
+    autonomy_level = Column(String, nullable=True)
+    allowed_roles = Column(JSON, nullable=True) # array of roles
+    allowed_destinations = Column(JSON, nullable=True) # allowlist domains/emails
+    max_daily_actions = Column(Integer, nullable=True)
+    is_enabled = Column(Boolean, nullable=False, default=True)
 
 class PendingApproval(Base, TimestampMixin):
     __tablename__ = "pending_approvals"

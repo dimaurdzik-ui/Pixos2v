@@ -26,23 +26,35 @@ async def initialize_workspace_resources(db: AsyncSession, workspace_id: uuid.UU
     )
     db.add(owner_member)
     
-    # 2. Coordinator Agent
-    coordinator_agent = Agent(
-        id=uuid.UUID("11111111-1111-1111-1111-111111111111"), # fixed id for now, could be dynamic
-        name="System Coordinator",
-        role="coordinator",
-        workspace_id=workspace_id,
-        status="active"
-    )
-    db.add(coordinator_agent)
-    
-    # 3. Starter Team
+    # 2. Starter Team
     starter_team = Team(
         name="Main Team",
         workspace_id=workspace_id,
-        description="Default team for AI Agents"
+        description="Default team for AI Agents",
+        team_type="standard"
     )
     db.add(starter_team)
+    await db.flush() # need starter_team id
+    
+    # 3. Coordinator Agent
+    coordinator_agent = Agent(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        team_id=starter_team.id,
+        name="System Coordinator",
+        role="coordinator",
+        job_title="System Router",
+        description="Core routing agent for the workspace.",
+        system_prompt="You are Pixos System Coordinator.",
+        model="gpt-4o",
+        autonomy_level="full_auto",
+        safety_level="high",
+        status="active",
+        is_coordinator=True,
+        created_by=owner_id
+    )
+    db.add(coordinator_agent)
+    await db.flush()
     
     # Flush to get starter_team id if we needed it (not strictly necessary here as we just added it)
     await db.flush()
@@ -79,16 +91,25 @@ async def initialize_workspace_resources(db: AsyncSession, workspace_id: uuid.UU
     )
     db.add(balance)
     
-    # 6. Audit Log
-    log = AuditLog(
+    # 6. Audit Logs
+    log1 = AuditLog(
         workspace_id=workspace_id,
         actor_type="system",
         actor_id=owner_id,
-        action="workspace.initialized",
+        action="workspace_created",
         resource_type="workspace",
         resource_id=str(workspace_id),
-        metadata_={"info": "Seeded starter resources"}
+        metadata_={"info": "Workspace initialized"}
     )
-    db.add(log)
+    log2 = AuditLog(
+        workspace_id=workspace_id,
+        actor_type="system",
+        actor_id=owner_id,
+        action="coordinator_seeded",
+        resource_type="agent",
+        resource_id=str(coordinator_agent.id),
+        metadata_={"info": "Seeded coordinator agent"}
+    )
+    db.add_all([log1, log2])
     
     await db.commit()

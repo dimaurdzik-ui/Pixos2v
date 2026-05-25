@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from pydantic import BaseModel
 import uuid
 
 from apps.api.app.db.database import get_db
-from apps.api.app.db.models.core import Workspace
+from apps.api.app.db.models.core import Workspace, User
+from apps.api.app.db.models.agents import Agent
 from apps.api.app.db.models.workflow import Task as DBTask, WorkflowRun
-from apps.api.app.api.deps import get_current_workspace
+from apps.api.app.api.deps import get_current_workspace, get_current_user
 from apps.api.app.workflows.coordinator import coordinator_app, CoordinatorState
 
 router = APIRouter()
@@ -37,6 +39,7 @@ async def run_workflow(
     task_id: str, 
     workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     task = await db.get(DBTask, uuid.UUID(task_id))
@@ -54,13 +57,23 @@ async def run_workflow(
     await db.refresh(run)
     
     # Trigger LangGraph synchronously for testing
+    # Fetch the coordinator agent for this workspace
+    result = await db.execute(
+        select(Agent).where(Agent.workspace_id == workspace.id, Agent.is_coordinator == True)
+    )
+    coordinator = result.scalar_one_or_none()
+    if not coordinator:
+        raise HTTPException(status_code=500, detail="No coordinator agent found for workspace")
+        
+    coordinator_id_str = str(coordinator.id)
+
     initial_state = {
         "workflow_run_id": str(run.id),
         "task_id": str(task.id),
         "workspace_id": str(task.workspace_id),
-        "coordinator_agent_id": "11111111-1111-1111-1111-111111111111",
-        "current_agent_id": "11111111-1111-1111-1111-111111111111", # same as coordinator
-        "user_id": str(workspace.id), # TODO: replace with actual user id from get_current_workspace/user
+        "user_id": str(current_user.id),
+        "coordinator_agent_id": coordinator_id_str,
+        "current_agent_id": coordinator_id_str,
         "user_request": task.description,
         "current_step": 0,
         "results": [],

@@ -17,6 +17,7 @@ class User(Base, TimestampMixin):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String, unique=True, index=True, nullable=False)
     name = Column(String)
+    is_super_admin = Column(Boolean, default=False, nullable=False)
 
 class Workspace(Base, TimestampMixin):
     __tablename__ = "workspaces"
