@@ -19,9 +19,13 @@ class Settings(BaseSettings):
     def SQLALCHEMY_DATABASE_URI(self) -> str:
         return self.DATABASE_URL
 
-    # Supabase (Auth)
+    # Supabase (Auth) - Deprecated for Clerk
     SUPABASE_URL: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None
+
+    # Clerk (Auth)
+    CLERK_SECRET_KEY: Optional[str] = None
+    CLERK_ISSUER_URL: Optional[str] = None
 
     # Redis/Celery
     REDIS_URL: str = "redis://localhost:6379/0"

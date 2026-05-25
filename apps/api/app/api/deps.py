@@ -8,36 +8,71 @@ from apps.api.app.db.database import get_db
 from apps.api.app.db.models.core import User, Workspace, WorkspaceMember
 
 import json
+import jwt
+from jwt import PyJWKClient
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from apps.api.app.core.config import settings
 
 security = HTTPBearer()
 
+jwks_client = PyJWKClient(f"{settings.CLERK_ISSUER_URL}/.well-known/jwks.json") if settings.CLERK_ISSUER_URL else None
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db)
 ) -> User:
-    if settings.ENVIRONMENT == "production":
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Mock Auth is strictly forbidden in production. Implement real JWT logic."
-        )
-
     token = credentials.credentials
-    # For MVP, we use the token directly as the email (e.g. "admin@pixos.ai")
-    # In production, replace with:
-    # payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-    # email = payload.get("email")
-    email = token
     
-    result = await db.execute(select(User).where(User.email == email))
+    if not settings.CLERK_ISSUER_URL:
+        if settings.ENVIRONMENT == "production":
+            raise HTTPException(status_code=500, detail="CLERK_ISSUER_URL not configured for production.")
+        # MOCK AUTH FALLBACK
+        email = token
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        return user
+        
+    try:
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            options={"verify_aud": False}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {str(e)}")
+        
+    clerk_id = payload.get("sub")
+    if not clerk_id:
+        raise HTTPException(status_code=401, detail="Token missing sub claim")
+        
+    result = await db.execute(select(User).where(User.clerk_id == clerk_id))
     user = result.scalar_one_or_none()
     
+    # LAZY SYNC: If user doesn't exist, create them and initialize their workspace
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or invalid token",
+        email = payload.get("email", f"{clerk_id}@clerk.user")
+        user = User(
+            clerk_id=clerk_id,
+            email=email,
+            full_name=payload.get("name", "New Pixos User")
         )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        
+        # Initialize default workspace
+        from apps.api.app.services.workspace import initialize_workspace_resources
+        ws = Workspace(name=f"{user.full_name}'s Workspace", created_by=user.id)
+        db.add(ws)
+        await db.commit()
+        await db.refresh(ws)
+        
+        await initialize_workspace_resources(db, ws.id, user.id)
+        
     return user
 
 async def get_current_workspace(

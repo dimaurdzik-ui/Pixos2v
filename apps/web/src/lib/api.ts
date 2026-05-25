@@ -12,14 +12,26 @@ export const api = axios.create({
 
 // Request interceptor to attach Mock Auth or real token
 api.interceptors.request.use(
-  (config) => {
-    // Check local storage for mock user email
+  async (config) => {
     if (typeof window !== 'undefined') {
-      const mockEmail = localStorage.getItem('pixos_mock_user_email');
+      let token = null;
+      
+      // 1. Try Clerk Token first
+      // @ts-expect-error window.Clerk is injected by ClerkProvider
+      if (window.Clerk && window.Clerk.session) {
+        // @ts-expect-error
+        token = await window.Clerk.session.getToken();
+      }
+      
+      // 2. Fallback to Mock Email Auth for local dev
+      if (!token) {
+        token = localStorage.getItem('pixos_mock_user_email');
+      }
+      
       const mockWorkspace = localStorage.getItem('pixos_mock_workspace_id');
       
-      if (mockEmail) {
-        config.headers['Authorization'] = `Bearer ${mockEmail}`;
+      if (token) {
+        config.headers['Authorization'] = `Bearer ${token}`;
       }
       
       if (mockWorkspace) {

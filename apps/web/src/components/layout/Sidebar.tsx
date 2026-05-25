@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { UserButton, SignedIn, SignedOut, SignInButton } from '@clerk/nextjs';
 import { 
   Briefcase, 
   Users, 
@@ -97,6 +98,20 @@ export function Sidebar() {
             })}
           </div>
         </div>
+      </div>
+      <div className="p-4 border-t border-border bg-sidebar flex items-center justify-between">
+        <SignedIn>
+          <div className="flex items-center gap-3 w-full">
+            <UserButton showName appearance={{ elements: { userButtonBox: "flex-row-reverse" } }} />
+          </div>
+        </SignedIn>
+        <SignedOut>
+          <SignInButton mode="modal">
+            <button className="text-sm font-medium text-sidebar-foreground hover:text-white transition-colors">
+              Sign In
+            </button>
+          </SignInButton>
+        </SignedOut>
       </div>
     </div>
   );
