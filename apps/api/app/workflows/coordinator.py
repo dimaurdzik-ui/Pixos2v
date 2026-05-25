@@ -40,18 +40,60 @@ async def start_run(state: CoordinatorState):
     return {"status": "running", "workflow_step_id": str(step.id)}
 
 async def agent_execute(state: CoordinatorState):
-    """Mock agent decision making using if/else for MVP"""
-    req = state["user_request"].lower()
+    """Real Agent Coordinator using LiteLLM and ToolRegistry schemas"""
+    from apps.api.app.core.config import settings
+    from apps.api.app.services.tools.registry import ToolRegistry
+    import litellm
+    import json
     
-    # Mocking LiteLLM / Agent decision
     tool_calls = []
-    if "email" in req:
-        tool_calls.append({"tool": "gmail.send", "payload": {"to": "test@test.com", "body": "Hello"}})
-    elif "search" in req:
-        tool_calls.append({"tool": "web.search", "payload": {"query": state["user_request"]}})
+    request = state.get("user_request", "").lower()
+    
+    # Check if we should run real LLM or mock
+    if settings.OPENAI_API_KEY:
+        schemas = ToolRegistry.get_all_schemas()
+        
+        messages = [
+            {"role": "system", "content": "You are Pixos System Coordinator. Use the provided tools to fulfill the user request. Only call tools if necessary. If the user request is already fulfilled by previous results, don't call tools again."},
+            {"role": "user", "content": request}
+        ]
+        
+        # Add past results
+        for res in state.get("results", []):
+            messages.append({
+                "role": "function",
+                "name": res["tool"],
+                "content": str(res["result"])
+            })
+            
+        try:
+            response = await litellm.acompletion(
+                model="gpt-4o",
+                messages=messages,
+                tools=schemas,
+                tool_choice="auto"
+            )
+            message = response.choices[0].message
+            
+            if hasattr(message, "tool_calls") and message.tool_calls:
+                for tc in message.tool_calls:
+                    tool_calls.append({
+                        "tool": tc.function.name,
+                        "payload": json.loads(tc.function.arguments)
+                    })
+        except Exception as e:
+            print(f"LLM Error: {e}")
+            # Fallback to empty if LLM fails
+            tool_calls = []
     else:
-        # Default action
-        tool_calls.append({"tool": "gmail.search", "payload": {"query": "is:unread"}})
+        # MOCK FALLBACK for local dev without API key
+        if not state.get("results"):
+            if "email" in request:
+                tool_calls.append({"tool": "gmail.send", "payload": {"to": "test@example.com", "subject": "Test", "body": request}})
+            elif "search" in request:
+                tool_calls.append({"tool": "web.search", "payload": {"query": request}})
+            else:
+                tool_calls.append({"tool": "gmail.search", "payload": {"query": "is:unread"}})
     
     if state.get("workflow_step_id"):
         async with AsyncSessionLocal() as db:
@@ -63,6 +105,11 @@ async def agent_execute(state: CoordinatorState):
             )
             db.add(event)
             await db.commit()
+            
+    if not tool_calls and state.get("results"):
+         # If no tools called and we already have results, we're done
+         # Actually wait, let check_policy just see empty tools and return completed
+         pass
         
     return {"tool_calls": tool_calls}
 
