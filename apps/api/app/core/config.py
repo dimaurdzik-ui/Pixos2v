@@ -1,5 +1,8 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+from pathlib import Path
+
+_ENV_FILE = Path(__file__).parent.parent.parent / ".env"  # apps/api/.env
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Pixos v2 Backend"
@@ -36,7 +39,7 @@ class Settings(BaseSettings):
     # LLM (LiteLLM)
     OPENAI_API_KEY: Optional[str] = None
 
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), case_sensitive=True, extra="ignore")
     
     def model_post_init(self, __context: type) -> None:
         if self.ENVIRONMENT == "production" and self.MOCK_TOOLS is True:
