@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-// In development, the API is running on localhost:8000
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export const api = axios.create({
@@ -10,57 +9,42 @@ export const api = axios.create({
   },
 });
 
-// Request interceptor to attach Mock Auth or real token
+// Token getter set by the ClerkTokenProvider component in the dashboard layout
+let _getToken: (() => Promise<string | null>) | null = null;
+
+export function setClerkTokenGetter(fn: () => Promise<string | null>) {
+  _getToken = fn;
+}
+
+// Request interceptor — attaches Clerk JWT to every request
 api.interceptors.request.use(
   async (config) => {
-    if (typeof window !== 'undefined') {
-      let token = null;
-      
-      // 1. Try Clerk Token first
-      // @ts-expect-error window.Clerk is injected by ClerkProvider
-      if (window.Clerk && window.Clerk.session) {
-        // @ts-expect-error window.Clerk.session type missing
-        token = await window.Clerk.session.getToken();
-      }
-      
-      // 2. Fallback to Mock Email Auth for local dev
-      if (!token) {
-        token = localStorage.getItem('pixos_mock_user_email');
-      }
-      
-      const mockWorkspace = localStorage.getItem('pixos_mock_workspace_id');
-      
-      if (token) {
-        config.headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      if (mockWorkspace) {
-        config.headers['workspace-id'] = mockWorkspace;
-      }
+    if (typeof window === 'undefined') return config;
+
+    let token: string | null = null;
+
+    // 1. Use Clerk token getter if set (from useAuth hook)
+    if (_getToken) {
+      token = await _getToken();
     }
+
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response interceptor for error handling
+// Response interceptor — do NOT redirect on 401; just reject silently
+// Navigation is handled by Clerk proxy middleware
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    // Handle unauthorized or other global errors here
-    if (error.response?.status === 401) {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('pixos_mock_user_email');
-        window.location.href = '/sign-in';
-      }
-    }
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Workflow endpoints
+// ─── Workflow endpoints ───────────────────────────────────────────
 export const createWorkflowTask = async (description: string) => {
   const response = await api.post('/api/v1/workflows/tasks', { description });
   return response.data;
@@ -71,7 +55,7 @@ export const getWorkflowStatus = async (runId: string) => {
   return response.data;
 };
 
-// Approval endpoints
+// ─── Approval endpoints ──────────────────────────────────────────
 export const getPendingApprovals = async () => {
   const response = await api.get('/api/v1/approvals');
   return response.data;
@@ -87,7 +71,7 @@ export const rejectAction = async (approvalId: string) => {
   return response.data;
 };
 
-// Artifact endpoints
+// ─── Artifact endpoints ──────────────────────────────────────────
 export const getArtifacts = async () => {
   const response = await api.get('/api/v1/artifacts');
   return response.data;
@@ -98,13 +82,13 @@ export const getArtifact = async (artifactId: string) => {
   return response.data;
 };
 
-// Agents endpoints
+// ─── Agent endpoints ─────────────────────────────────────────────
 export const getAgents = async () => {
   const response = await api.get('/api/v1/agents');
   return response.data;
 };
 
-export const createAgent = async (data: { name: string, description?: string, system_prompt?: string, model_name?: string }) => {
+export const createAgent = async (data: { name: string; description?: string; system_prompt?: string; model_name?: string }) => {
   const response = await api.post('/api/v1/agents', data);
   return response.data;
 };
@@ -114,13 +98,13 @@ export const deleteAgent = async (agentId: string) => {
   return response.data;
 };
 
-// Teams endpoints
+// ─── Team endpoints ──────────────────────────────────────────────
 export const getTeams = async () => {
   const response = await api.get('/api/v1/teams');
   return response.data;
 };
 
-export const createTeam = async (data: { name: string, description?: string }) => {
+export const createTeam = async (data: { name: string; description?: string }) => {
   const response = await api.post('/api/v1/teams', data);
   return response.data;
 };
@@ -130,7 +114,7 @@ export const deleteTeam = async (teamId: string) => {
   return response.data;
 };
 
-// Billing endpoints
+// ─── Billing endpoints ───────────────────────────────────────────
 export const getBillingBalance = async () => {
   const response = await api.get('/api/v1/billing/balance');
   return response.data;
@@ -141,7 +125,7 @@ export const getBillingHistory = async () => {
   return response.data;
 };
 
-// Policy endpoints
+// ─── Policy endpoints ────────────────────────────────────────────
 export const getPolicies = async () => {
   const response = await api.get('/api/v1/policies');
   return response.data;
@@ -149,7 +133,7 @@ export const getPolicies = async () => {
 
 export const updatePolicy = async (toolName: string, approvalRequired: string) => {
   const response = await api.put(`/api/v1/policies/${toolName}`, {
-    approval_required: approvalRequired
+    approval_required: approvalRequired,
   });
   return response.data;
 };
