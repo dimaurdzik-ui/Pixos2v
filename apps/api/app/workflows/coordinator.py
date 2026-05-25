@@ -5,6 +5,7 @@ from langgraph.graph import StateGraph, END
 from apps.api.app.db.database import AsyncSessionLocal
 from apps.api.app.db.models.workflow import WorkflowStep, WorkflowEvent, WorkflowRun
 from apps.api.app.db.models.policy import PendingApproval
+from apps.api.app.db.models.billing import CreditBalance, UsageRecord
 from apps.api.app.services.tools.gateway import ToolGateway
 
 class CoordinatorState(TypedDict):

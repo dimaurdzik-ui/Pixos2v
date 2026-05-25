@@ -7,10 +7,12 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
 from apps.api.app.db.database import AsyncSessionLocal
-from apps.api.app.db.models.core import Workspace, User
+from apps.api.app.db.models.policy import ToolPolicy
+from apps.api.app.db.models.billing import CreditBalance
 from apps.api.app.db.models.agents import Agent
 from sqlalchemy import select
 from apps.api.app.services.workspace import initialize_workspace_resources
+from apps.api.app.db.models.core import Workspace, User
 
 async def seed():
     async with AsyncSessionLocal() as db:
@@ -48,9 +50,19 @@ async def seed():
             await initialize_workspace_resources(db, fixed_uuid, current_user.id)
             print("Initialized workspace resources")
         else:
+            ws = existing_ws
             print(f"Workspace with ID {fixed_uuid} already exists.")
             
-        print("Seeding complete.")
+        # 5. Check / Create Credit Balance
+        result = await db.execute(select(CreditBalance).filter_by(workspace_id=ws.id))
+        cb = result.scalars().first()
+        if not cb:
+            cb = CreditBalance(workspace_id=ws.id, balance=100000)
+            db.add(cb)
+            await db.commit()
+            print("Seeded Default Credit Balance: 100,000 credits")
+
+        print("Seeding completed successfully.")
 
 if __name__ == "__main__":
     asyncio.run(seed())

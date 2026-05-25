@@ -6,6 +6,7 @@ import uuid
 import logging
 
 from apps.api.app.db.database import get_db, AsyncSessionLocal
+from apps.api.app.db.models.billing import CreditBalance
 from apps.api.app.db.models.core import Workspace, User
 from apps.api.app.db.models.agents import Agent
 from apps.api.app.db.models.workflow import Task as DBTask, WorkflowRun, WorkflowStep, WorkflowEvent
@@ -18,9 +19,31 @@ logger = logging.getLogger(__name__)
 class TaskCreate(BaseModel):
     description: str
 
+class TaskResponse(BaseModel):
+    task_id: str
+    workflow_run_id: str
+    status: str
+
 async def run_coordinator_background(initial_state: dict):
     try:
-        await coordinator_app.ainvoke(initial_state)
+        final_state = await coordinator_app.ainvoke(initial_state)
+        
+        # Deduct credits if completed
+        if final_state.get("status") == "completed":
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(select(CreditBalance).where(CreditBalance.workspace_id == initial_state["workspace_id"]))
+                balance = result.scalars().first()
+                if balance:
+                    balance.balance -= 10
+                    from apps.api.app.db.models.billing import UsageRecord
+                    usage = UsageRecord(
+                        workspace_id=initial_state["workspace_id"],
+                        workflow_run_id=initial_state["workflow_run_id"],
+                        cost=10
+                    )
+                    db.add(usage)
+                    await db.commit()
+                    
     except Exception as e:
         logger.error(f"Coordinator failed: {e}")
         async with AsyncSessionLocal() as db:
@@ -29,7 +52,7 @@ async def run_coordinator_background(initial_state: dict):
                 run.status = "failed"
                 await db.commit()
 
-@router.post("/tasks")
+@router.post("/tasks", response_model=TaskResponse)
 async def create_task(
     task_in: TaskCreate,
     background_tasks: BackgroundTasks,
@@ -38,7 +61,13 @@ async def create_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # 1. Create task
+    # 1. Check Credit Balance
+    result = await db.execute(select(CreditBalance).where(CreditBalance.workspace_id == workspace.id))
+    balance = result.scalars().first()
+    if not balance or balance.balance < 10:
+        raise HTTPException(status_code=402, detail="Insufficient credits. Please recharge your balance.")
+
+    # 2. Create task
     new_task = DBTask(
         workspace_id=workspace.id,
         description=task_in.description,

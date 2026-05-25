@@ -107,3 +107,14 @@ export const createTeam = async (data: { name: string, description?: string }) =
   const response = await api.post('/api/v1/teams', data);
   return response.data;
 };
+
+// Billing endpoints
+export const getBillingBalance = async () => {
+  const response = await api.get('/api/v1/billing/balance');
+  return response.data;
+};
+
+export const getBillingHistory = async () => {
+  const response = await api.get('/api/v1/billing/history');
+  return response.data;
+};
