@@ -19,10 +19,10 @@ export default function Home() {
           <Link href="#safety" className="hover:text-foreground transition-colors">Safety</Link>
         </nav>
         <div className="flex items-center gap-4">
-          <Link href="/login">
+          <Link href="/sign-in">
             <Button variant="ghost">Sign In</Button>
           </Link>
-          <Link href="/register">
+          <Link href="/sign-up">
             <Button>Get Started</Button>
           </Link>
         </div>
@@ -41,10 +41,10 @@ export default function Home() {
               Build, manage, and deploy a workforce of AI agents that coordinate, execute complex workflows, and integrate securely with your existing tools.
             </p>
             <div className="flex items-center justify-center gap-4 pt-4">
-              <Link href="/register">
+              <Link href="/sign-up">
                 <Button size="lg" className="h-12 px-8 text-base">Start Building</Button>
               </Link>
-              <Link href="/login">
+              <Link href="/sign-in">
                 <Button size="lg" variant="outline" className="h-12 px-8 text-base bg-transparent border-white/10 hover:bg-white/5">
                   View Demo
                 </Button>

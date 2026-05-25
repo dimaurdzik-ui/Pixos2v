@@ -12,25 +12,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMounted(true);
-    
-    // Very basic Mock Auth check
-    const email = localStorage.getItem("pixos_mock_user_email");
-    
-    // Allow public routes
-    const publicRoutes = ['/', '/login', '/register'];
-    
-    if (!email && pathname && !publicRoutes.includes(pathname)) {
-      router.push('/login');
-    }
-  }, [pathname, router]);
+  }, []);
 
   if (!mounted) {
     return <div className="min-h-screen bg-background" />;
   }
 
   // If public route, render without sidebar
-  const publicRoutes = ['/', '/login', '/register'];
-  if (pathname && publicRoutes.includes(pathname)) {
+  const publicRoutes = ['/', '/sign-in', '/sign-up'];
+  if (pathname && publicRoutes.some(route => pathname.startsWith(route) || pathname === '/')) {
     return <>{children}</>;
   }
 

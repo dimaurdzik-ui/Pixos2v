@@ -53,7 +53,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('pixos_mock_user_email');
-        window.location.href = '/login';
+        window.location.href = '/sign-in';
       }
     }
     return Promise.reject(error);
