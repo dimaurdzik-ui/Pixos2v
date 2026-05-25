@@ -97,6 +97,11 @@ export const createAgent = async (data: { name: string, description?: string, sy
   return response.data;
 };
 
+export const deleteAgent = async (agentId: string) => {
+  const response = await api.delete(`/api/v1/agents/${agentId}`);
+  return response.data;
+};
+
 // Teams endpoints
 export const getTeams = async () => {
   const response = await api.get('/api/v1/teams');
@@ -105,6 +110,11 @@ export const getTeams = async () => {
 
 export const createTeam = async (data: { name: string, description?: string }) => {
   const response = await api.post('/api/v1/teams', data);
+  return response.data;
+};
+
+export const deleteTeam = async (teamId: string) => {
+  const response = await api.delete(`/api/v1/teams/${teamId}`);
   return response.data;
 };
 

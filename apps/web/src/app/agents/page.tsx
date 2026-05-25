@@ -3,9 +3,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, User, Bot, BrainCircuit, Loader2 } from "lucide-react";
+import { Plus, Bot, BrainCircuit, Loader2, Trash2 } from "lucide-react";
 import { useState, useEffect } from "react";
-import { getAgents, createAgent } from "@/lib/api";
+import { getAgents, createAgent, deleteAgent } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<any[]>([]);
@@ -37,10 +38,30 @@ export default function AgentsPage() {
       await fetchAgents();
       setShowModal(false);
       setNewAgent({ name: "", description: "", system_prompt: "" });
+      toast.success("Agent created successfully!");
     } catch (error) {
       console.error("Failed to create agent", error);
+      toast.error("Failed to create agent");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteAgent = async (id: string, is_coordinator: boolean) => {
+    if (is_coordinator) {
+      toast.error("Cannot delete the System Coordinator");
+      return;
+    }
+    
+    if (confirm("Are you sure you want to delete this agent?")) {
+      try {
+        await deleteAgent(id);
+        toast.success("Agent deleted");
+        await fetchAgents();
+      } catch (error) {
+        console.error("Failed to delete agent", error);
+        toast.error("Failed to delete agent");
+      }
     }
   };
 
@@ -75,6 +96,11 @@ export default function AgentsPage() {
                 {agent.is_coordinator && (
                   <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full font-medium">Core</span>
                 )}
+                {!agent.is_coordinator && (
+                  <Button variant="ghost" size="icon" onClick={() => handleDeleteAgent(agent.id, agent.is_coordinator)} className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
               <CardTitle>{agent.name}</CardTitle>
               <CardDescription>{agent.description || "No description provided."}</CardDescription>
@@ -92,7 +118,12 @@ export default function AgentsPage() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div 
+          className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowModal(false);
+          }}
+        >
           <Card className="w-full max-w-md shadow-2xl border-primary/20">
             <CardHeader>
               <CardTitle>Create New Agent</CardTitle>

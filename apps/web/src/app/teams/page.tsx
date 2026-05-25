@@ -3,9 +3,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Users, Loader2 } from "lucide-react";
+import { Plus, Users, Loader2, Trash2 } from "lucide-react";
 import { useState, useEffect } from "react";
-import { getTeams, createTeam } from "@/lib/api";
+import { getTeams, createTeam, deleteTeam } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function TeamsPage() {
   const [teams, setTeams] = useState<any[]>([]);
@@ -37,10 +38,25 @@ export default function TeamsPage() {
       await fetchTeams();
       setShowModal(false);
       setNewTeam({ name: "", description: "" });
+      toast.success("Team created successfully!");
     } catch (error) {
       console.error("Failed to create team", error);
+      toast.error("Failed to create team");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteTeam = async (id: string) => {
+    if (confirm("Are you sure you want to delete this team?")) {
+      try {
+        await deleteTeam(id);
+        toast.success("Team deleted");
+        await fetchTeams();
+      } catch (error) {
+        console.error("Failed to delete team", error);
+        toast.error("Failed to delete team");
+      }
     }
   };
 
@@ -77,6 +93,9 @@ export default function TeamsPage() {
                   <div className="h-10 w-10 bg-primary/10 rounded-lg flex items-center justify-center">
                     <Users className="h-5 w-5 text-primary" />
                   </div>
+                  <Button variant="ghost" size="icon" onClick={() => handleDeleteTeam(team.id)} className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
                 <CardTitle>{team.name}</CardTitle>
                 <CardDescription>{team.description || "No description provided."}</CardDescription>
@@ -93,7 +112,12 @@ export default function TeamsPage() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div 
+          className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowModal(false);
+          }}
+        >
           <Card className="w-full max-w-md shadow-2xl border-primary/20">
             <CardHeader>
               <CardTitle>Create New Team</CardTitle>

@@ -69,3 +69,26 @@ async def create_agent(
         "description": new_agent.description,
         "is_coordinator": new_agent.is_coordinator
     }
+
+@router.delete("/{agent_id}")
+async def delete_agent(
+    agent_id: str,
+    workspace_id: str = Header(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        aid = uuid.UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid agent ID")
+        
+    agent = await db.get(Agent, aid)
+    if not agent or agent.workspace_id != workspace.id:
+        raise HTTPException(status_code=404, detail="Agent not found")
+        
+    if agent.is_coordinator:
+        raise HTTPException(status_code=400, detail="Cannot delete the System Coordinator agent")
+        
+    await db.delete(agent)
+    await db.commit()
+    return {"status": "success"}

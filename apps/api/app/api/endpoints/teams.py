@@ -58,3 +58,23 @@ async def create_team(
         "name": new_team.name,
         "description": new_team.description
     }
+
+@router.delete("/{team_id}")
+async def delete_team(
+    team_id: str,
+    workspace_id: str = Header(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        tid = uuid.UUID(team_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid team ID")
+        
+    team = await db.get(Team, tid)
+    if not team or team.workspace_id != workspace.id:
+        raise HTTPException(status_code=404, detail="Team not found")
+        
+    await db.delete(team)
+    await db.commit()
+    return {"status": "success"}
