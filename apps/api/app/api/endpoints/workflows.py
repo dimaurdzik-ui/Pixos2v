@@ -10,7 +10,7 @@ from apps.api.app.db.models.billing import CreditBalance
 from apps.api.app.db.models.core import Workspace, User
 from apps.api.app.db.models.agents import Agent
 from apps.api.app.db.models.workflow import Task as DBTask, WorkflowRun, WorkflowStep, WorkflowEvent
-from apps.api.app.api.deps import get_current_workspace, get_current_user
+from apps.api.app.api.deps import get_current_workspace, get_current_user, require_permission
 from apps.api.app.workflows.coordinator import coordinator_app
 
 router = APIRouter()
@@ -59,7 +59,8 @@ async def create_task(
     workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _ = Depends(require_permission("run_workflows"))
 ):
     # 1. Check Credit Balance
     result = await db.execute(select(CreditBalance).where(CreditBalance.workspace_id == workspace.id))

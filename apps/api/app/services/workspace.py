@@ -94,21 +94,17 @@ async def initialize_workspace_resources(db: AsyncSession, workspace_id: uuid.UU
     # 6. Audit Logs
     log1 = AuditLog(
         workspace_id=workspace_id,
-        actor_type="system",
-        actor_id=owner_id,
+        user_id=owner_id,
         action="workspace_created",
-        resource_type="workspace",
-        resource_id=str(workspace_id),
-        metadata_={"info": "Workspace initialized"}
+        target_id=str(workspace_id),
+        details={"info": "Workspace initialized"}
     )
     log2 = AuditLog(
         workspace_id=workspace_id,
-        actor_type="system",
-        actor_id=owner_id,
+        user_id=owner_id,
         action="coordinator_seeded",
-        resource_type="agent",
-        resource_id=str(coordinator_agent.id),
-        metadata_={"info": "Seeded coordinator agent"}
+        target_id=str(coordinator_agent.id),
+        details={"info": "Seeded coordinator agent"}
     )
     db.add_all([log1, log2])
     

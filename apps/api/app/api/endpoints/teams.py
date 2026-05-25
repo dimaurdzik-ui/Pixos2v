@@ -6,9 +6,9 @@ from pydantic import BaseModel
 from typing import Optional
 
 from apps.api.app.db.database import get_db
-from apps.api.app.db.models.agents import Team
 from apps.api.app.db.models.core import Workspace
-from apps.api.app.api.deps import get_current_workspace
+from apps.api.app.db.models.agents import Team
+from apps.api.app.api.deps import get_current_workspace, require_permission
 
 router = APIRouter()
 
@@ -37,12 +37,13 @@ async def get_teams(
         for t in teams
     ]
 
-@router.post("")
+@router.post("", response_model=dict)
 async def create_team(
     team_in: TeamCreate,
     workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _ = Depends(require_permission("manage_teams"))
 ):
     new_team = Team(
         workspace_id=workspace.id,
@@ -64,7 +65,8 @@ async def delete_team(
     team_id: str,
     workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _ = Depends(require_permission("manage_teams"))
 ):
     try:
         tid = uuid.UUID(team_id)

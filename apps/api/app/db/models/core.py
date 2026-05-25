@@ -30,17 +30,13 @@ class WorkspaceMember(Base, TimestampMixin):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    role = Column(Enum(RoleEnum), nullable=False)
+    role = Column(Enum(RoleEnum), nullable=False, default=RoleEnum.member)
 
 class AuditLog(Base, TimestampMixin):
     __tablename__ = "audit_logs"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
-    actor_type = Column(String, nullable=False) # e.g., 'user', 'system'
-    actor_id = Column(UUID(as_uuid=True), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     action = Column(String, nullable=False)
-    resource_type = Column(String, nullable=False)
-    resource_id = Column(String, nullable=True)
-    metadata_ = Column("metadata", JSON, nullable=True) # renamed to avoid conflict with Base.metadata
     ip_address = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
