@@ -1,42 +1,46 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Dict, Any
 from pydantic import BaseModel
 import uuid
 
 from apps.api.app.db.database import get_db
 from apps.api.app.db.models.core import Workspace
-from apps.api.app.db.models.workflow import Task, WorkflowRun
+from apps.api.app.db.models.workflow import Task as DBTask, WorkflowRun
+from apps.api.app.api.deps import get_current_workspace
 from apps.api.app.workflows.coordinator import coordinator_app, CoordinatorState
 
 router = APIRouter()
 
-class TaskCreateRequest(BaseModel):
-    workspace_id: str
+class TaskCreate(BaseModel):
     description: str
 
 @router.post("/tasks")
-async def create_task(request: TaskCreateRequest, db: AsyncSession = Depends(get_db)):
-    # Validate workspace
-    workspace = await db.get(Workspace, uuid.UUID(request.workspace_id))
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-        
-    task = Task(
-        workspace_id=uuid.UUID(request.workspace_id),
-        description=request.description,
+async def create_task(
+    task_in: TaskCreate,
+    workspace_id: str = Header(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
+    new_task = DBTask(
+        workspace_id=workspace.id,
+        description=task_in.description,
         status="pending"
     )
-    db.add(task)
+    db.add(new_task)
     await db.commit()
-    await db.refresh(task)
+    await db.refresh(new_task)
     
-    return {"task_id": str(task.id), "status": task.status}
+    return {"task_id": str(new_task.id), "status": new_task.status}
 
 @router.post("/workflows/{task_id}/run")
-async def run_workflow(task_id: str, db: AsyncSession = Depends(get_db)):
-    task = await db.get(Task, uuid.UUID(task_id))
-    if not task:
+async def run_workflow(
+    task_id: str, 
+    workspace_id: str = Header(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
+    task = await db.get(DBTask, uuid.UUID(task_id))
+    if not task or task.workspace_id != workspace.id:
         raise HTTPException(status_code=404, detail="Task not found")
         
     # Create workflow run
@@ -54,6 +58,9 @@ async def run_workflow(task_id: str, db: AsyncSession = Depends(get_db)):
         "workflow_run_id": str(run.id),
         "task_id": str(task.id),
         "workspace_id": str(task.workspace_id),
+        "coordinator_agent_id": "11111111-1111-1111-1111-111111111111",
+        "current_agent_id": "11111111-1111-1111-1111-111111111111", # same as coordinator
+        "user_id": str(workspace.id), # TODO: replace with actual user id from get_current_workspace/user
         "user_request": task.description,
         "current_step": 0,
         "results": [],

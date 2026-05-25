@@ -7,15 +7,14 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
 
     # Database
-    POSTGRES_USER: str = "pixos"
-    POSTGRES_PASSWORD: str = "pixos_password"
-    POSTGRES_SERVER: str = "localhost"
-    POSTGRES_PORT: str = "5433"
-    POSTGRES_DB: str = "pixos_db"
-    
+    DATABASE_URL: str
+
+    # CORS
+    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
+
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
-        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        return self.DATABASE_URL
 
     # Supabase (Auth)
     SUPABASE_URL: Optional[str] = None
@@ -23,6 +22,9 @@ class Settings(BaseSettings):
 
     # Redis/Celery
     REDIS_URL: str = "redis://localhost:6379/0"
+    
+    # LangGraph & Tools
+    MOCK_TOOLS: bool = True
     
     # LLM (LiteLLM)
     OPENAI_API_KEY: Optional[str] = None

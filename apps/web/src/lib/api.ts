@@ -4,10 +4,13 @@ export const DEFAULT_WORKSPACE_ID = "00000000-0000-0000-0000-000000000000";
 
 export const api = {
   async createTask(description: string) {
-    const res = await fetch(`${API_BASE_URL}/workflows/tasks`, { // Wait, the endpoint is /workflows/tasks
+    const res = await fetch(`${API_BASE_URL}/workflows/tasks`, { 
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workspace_id: DEFAULT_WORKSPACE_ID, description })
+      headers: { 
+        "Content-Type": "application/json",
+        "workspace-id": DEFAULT_WORKSPACE_ID
+      },
+      body: JSON.stringify({ description })
     });
     if (!res.ok) throw new Error("Failed to create task");
     return res.json();
@@ -22,7 +25,11 @@ export const api = {
   },
   
   async getApprovals() {
-    const res = await fetch(`${API_BASE_URL}/approvals?workspace_id=${DEFAULT_WORKSPACE_ID}`);
+    const res = await fetch(`${API_BASE_URL}/approvals`, {
+      headers: {
+        "workspace-id": DEFAULT_WORKSPACE_ID
+      }
+    });
     if (!res.ok) throw new Error("Failed to fetch approvals");
     return res.json();
   },

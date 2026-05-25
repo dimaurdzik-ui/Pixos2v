@@ -1,94 +1,87 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Dict, Any
-from pydantic import BaseModel
 import uuid
+from fastapi import APIRouter, Depends, HTTPException, Header
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from apps.api.app.db.database import get_db
 from apps.api.app.db.models.policy import PendingApproval
-from apps.api.app.db.models.workflow import WorkflowRun, Task
-from apps.api.app.workflows.coordinator import coordinator_app, CoordinatorState
-from apps.api.app.db.models.core import AuditLog
-
-from sqlalchemy import select
+from apps.api.app.db.models.core import Workspace, AuditLog
+from apps.api.app.api.deps import get_current_workspace
+from apps.api.app.db.models.workflow import WorkflowEvent
 
 router = APIRouter()
 
 @router.get("")
-async def get_approvals(workspace_id: str, db: AsyncSession = Depends(get_db)):
+async def get_approvals(
+    workspace_id: str = Header(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(
         select(PendingApproval).where(
-            PendingApproval.workspace_id == uuid.UUID(workspace_id),
+            PendingApproval.workspace_id == workspace.id,
             PendingApproval.status == "pending"
         )
     )
-    approvals = result.scalars().all()
-    return [{"id": str(a.id), "tool": a.action_type, "risk": a.risk_level, "payload": a.payload_preview, "status": a.status} for a in approvals]
+    return result.scalars().all()
 
 @router.post("/{approval_id}/approve")
-async def approve_action(approval_id: str, db: AsyncSession = Depends(get_db)):
+async def approve_tool(
+    approval_id: str,
+    workspace_id: str = Header(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
     approval = await db.get(PendingApproval, uuid.UUID(approval_id))
-    if not approval or approval.status != "pending":
-        raise HTTPException(status_code=404, detail="Pending approval not found or already processed")
+    if not approval or approval.workspace_id != workspace.id:
+        raise HTTPException(status_code=404, detail="Approval not found")
+        
+    if approval.status != "pending":
+        return {"status": approval.status, "message": "Approval already processed"}
         
     approval.status = "approved"
-    await db.commit()
     
-    # Log Audit
-    log = AuditLog(
-        workspace_id=approval.workspace_id,
-        actor_type="user",
-        action="approval_approved",
-        resource_type="pending_approval",
-        resource_id=str(approval.id),
-        metadata_={"tool": approval.action_type}
+    # Execute the tool
+    from apps.api.app.services.tools.gateway import ToolGateway
+    
+    try:
+        tool_result = await ToolGateway.execute(approval.action_type, approval.payload_preview or {})
+    except Exception as e:
+        tool_result = f"Error executing tool: {str(e)}"
+        
+    # Log event
+    event = WorkflowEvent(
+        workflow_run_id=approval.workflow_run_id,
+        event_type="tool_approved_and_executed",
+        payload={"tool": approval.action_type, "result": tool_result}
     )
-    db.add(log)
+    db.add(event)
     
-    run = await db.get(WorkflowRun, approval.workflow_run_id)
-    task = await db.get(Task, run.task_id)
-    
-    # Resume the workflow run
-    # For MVP we re-initialize the state with `pending_approval_id` to skip prior steps
-    resume_state = {
-        "workflow_run_id": str(run.id),
-        "task_id": str(task.id),
-        "workspace_id": str(run.workspace_id),
-        "user_request": task.description,
-        "current_step": 1,
-        "results": ["Resumed from approval"],
-        "total_cost": 0.0,
-        "artifact_content": "",
-        "tool_calls": [{"tool": approval.action_type, "payload": approval.payload_preview}],
-        "pending_approval_id": str(approval.id),
-        "status": "running"
-    }
-    
-    final_state = await coordinator_app.ainvoke(resume_state)
-    
-    return {"status": "approved_and_resumed", "workflow_results": final_state.get("results")}
+    await db.commit()
+    return {"status": "approved", "result": tool_result}
 
 @router.post("/{approval_id}/reject")
-async def reject_action(approval_id: str, db: AsyncSession = Depends(get_db)):
+async def reject_tool(
+    approval_id: str,
+    workspace_id: str = Header(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
     approval = await db.get(PendingApproval, uuid.UUID(approval_id))
-    if not approval or approval.status != "pending":
-        raise HTTPException(status_code=404, detail="Pending approval not found or already processed")
+    if not approval or approval.workspace_id != workspace.id:
+        raise HTTPException(status_code=404, detail="Approval not found")
+        
+    if approval.status != "pending":
+        return {"status": approval.status, "message": "Approval already processed"}
         
     approval.status = "rejected"
     
-    # Update run status
-    run = await db.get(WorkflowRun, approval.workflow_run_id)
-    run.status = "failed"
-    
-    # Log Audit
-    log = AuditLog(
-        workspace_id=approval.workspace_id,
-        actor_type="user",
-        action="approval_rejected",
-        resource_type="pending_approval",
-        resource_id=str(approval.id)
+    event = WorkflowEvent(
+        workflow_run_id=approval.workflow_run_id,
+        event_type="tool_rejected",
+        payload={"tool": approval.action_type}
     )
-    db.add(log)
-    await db.commit()
+    db.add(event)
     
-    return {"status": "rejected", "message": "Workflow run has been stopped."}
+    await db.commit()
+    return {"status": "rejected"}
