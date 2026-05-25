@@ -76,33 +76,52 @@ async def get_current_user(
     return user
 
 async def get_current_workspace(
-    workspace_id: str = Header(..., description="The ID of the workspace"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    workspace_id: Optional[str] = Header(None, description="The ID of the workspace (optional)"),
 ) -> Workspace:
-    try:
-        ws_uuid = uuid.UUID(workspace_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid workspace ID format")
-
-    result = await db.execute(
-        select(WorkspaceMember)
-        .where(
-            WorkspaceMember.workspace_id == ws_uuid,
-            WorkspaceMember.user_id == current_user.id
-        )
-    )
-    membership = result.scalar_one_or_none()
+    """Resolve workspace for current user. If workspace_id header given, validate membership.
+    Otherwise, auto-select the user's first workspace (Lazy Workspace Resolution)."""
     
-    if not membership:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this workspace")
+    if workspace_id:
+        try:
+            ws_uuid = uuid.UUID(workspace_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid workspace ID format")
+
+        result = await db.execute(
+            select(WorkspaceMember)
+            .where(
+                WorkspaceMember.workspace_id == ws_uuid,
+                WorkspaceMember.user_id == current_user.id
+            )
+        )
+        membership = result.scalar_one_or_none()
         
-    result_ws = await db.execute(select(Workspace).where(Workspace.id == ws_uuid))
-    workspace = result_ws.scalar_one_or_none()
+        if not membership:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this workspace")
+            
+        result_ws = await db.execute(select(Workspace).where(Workspace.id == ws_uuid))
+        workspace = result_ws.scalar_one_or_none()
+        
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+            
+        return workspace
+    
+    # No workspace_id header — auto-resolve first workspace for this user
+    result = await db.execute(
+        select(Workspace)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .where(WorkspaceMember.user_id == current_user.id)
+        .order_by(Workspace.created_at)
+        .limit(1)
+    )
+    workspace = result.scalar_one_or_none()
     
     if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-        
+        raise HTTPException(status_code=404, detail="No workspace found for this user")
+    
     return workspace
 
 ROLE_PERMISSIONS = {
