@@ -7,7 +7,7 @@ from apps.api.app.db.database import get_db
 from apps.api.app.db.models.policy import PendingApproval
 from apps.api.app.db.models.core import Workspace, AuditLog
 from apps.api.app.api.deps import get_current_workspace
-from apps.api.app.db.models.workflow import WorkflowEvent
+from apps.api.app.db.models.workflow import WorkflowEvent, WorkflowRun
 
 router = APIRouter()
 
@@ -57,6 +57,11 @@ async def approve_tool(
     )
     db.add(event)
     
+    # Update workflow run status
+    run = await db.get(WorkflowRun, approval.workflow_run_id)
+    if run:
+        run.status = "completed"
+    
     await db.commit()
     return {"status": "approved", "result": tool_result}
 
@@ -82,6 +87,11 @@ async def reject_tool(
         payload={"tool": approval.action_type}
     )
     db.add(event)
+    
+    # Update workflow run status
+    run = await db.get(WorkflowRun, approval.workflow_run_id)
+    if run:
+        run.status = "failed"
     
     await db.commit()
     return {"status": "rejected"}

@@ -58,3 +58,19 @@ export const getWorkflowStatus = async (runId: string) => {
   const response = await api.get(`/api/v1/workflows/workflows/${runId}`);
   return response.data;
 };
+
+// Approval endpoints
+export const getPendingApprovals = async () => {
+  const response = await api.get('/api/v1/approvals');
+  return response.data;
+};
+
+export const approveAction = async (approvalId: string) => {
+  const response = await api.post(`/api/v1/approvals/${approvalId}/approve`);
+  return response.data;
+};
+
+export const rejectAction = async (approvalId: string) => {
+  const response = await api.post(`/api/v1/approvals/${approvalId}/reject`);
+  return response.data;
+};
