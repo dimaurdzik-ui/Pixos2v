@@ -85,3 +85,25 @@ export const getArtifact = async (artifactId: string) => {
   const response = await api.get(`/api/v1/artifacts/${artifactId}`);
   return response.data;
 };
+
+// Agents endpoints
+export const getAgents = async () => {
+  const response = await api.get('/api/v1/agents');
+  return response.data;
+};
+
+export const createAgent = async (data: { name: string, description?: string, system_prompt?: string, model_name?: string }) => {
+  const response = await api.post('/api/v1/agents', data);
+  return response.data;
+};
+
+// Teams endpoints
+export const getTeams = async () => {
+  const response = await api.get('/api/v1/teams');
+  return response.data;
+};
+
+export const createTeam = async (data: { name: string, description?: string }) => {
+  const response = await api.post('/api/v1/teams', data);
+  return response.data;
+};

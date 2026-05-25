@@ -1,0 +1,60 @@
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, Header
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from pydantic import BaseModel
+from typing import Optional
+
+from apps.api.app.db.database import get_db
+from apps.api.app.db.models.agents import Team
+from apps.api.app.db.models.core import Workspace
+from apps.api.app.api.deps import get_current_workspace
+
+router = APIRouter()
+
+class TeamCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+@router.get("")
+async def get_teams(
+    workspace_id: str = Header(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Team).where(Team.workspace_id == workspace.id).order_by(Team.created_at)
+    )
+    teams = result.scalars().all()
+    
+    return [
+        {
+            "id": str(t.id),
+            "name": t.name,
+            "description": t.description,
+            "created_at": t.created_at.isoformat() if t.created_at else None
+        }
+        for t in teams
+    ]
+
+@router.post("")
+async def create_team(
+    team_in: TeamCreate,
+    workspace_id: str = Header(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
+    new_team = Team(
+        workspace_id=workspace.id,
+        name=team_in.name,
+        description=team_in.description
+    )
+    db.add(new_team)
+    await db.commit()
+    await db.refresh(new_team)
+    
+    return {
+        "id": str(new_team.id),
+        "name": new_team.name,
+        "description": new_team.description
+    }
