@@ -1,28 +1,44 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
 import uuid
+import logging
 
-from apps.api.app.db.database import get_db
+from apps.api.app.db.database import get_db, AsyncSessionLocal
 from apps.api.app.db.models.core import Workspace, User
 from apps.api.app.db.models.agents import Agent
-from apps.api.app.db.models.workflow import Task as DBTask, WorkflowRun
+from apps.api.app.db.models.workflow import Task as DBTask, WorkflowRun, WorkflowStep, WorkflowEvent
 from apps.api.app.api.deps import get_current_workspace, get_current_user
-from apps.api.app.workflows.coordinator import coordinator_app, CoordinatorState
+from apps.api.app.workflows.coordinator import coordinator_app
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class TaskCreate(BaseModel):
     description: str
 
+async def run_coordinator_background(initial_state: dict):
+    try:
+        await coordinator_app.ainvoke(initial_state)
+    except Exception as e:
+        logger.error(f"Coordinator failed: {e}")
+        async with AsyncSessionLocal() as db:
+            run = await db.get(WorkflowRun, uuid.UUID(initial_state["workflow_run_id"]))
+            if run:
+                run.status = "failed"
+                await db.commit()
+
 @router.post("/tasks")
 async def create_task(
     task_in: TaskCreate,
+    background_tasks: BackgroundTasks,
     workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    # 1. Create task
     new_task = DBTask(
         workspace_id=workspace.id,
         description=task_in.description,
@@ -32,32 +48,17 @@ async def create_task(
     await db.commit()
     await db.refresh(new_task)
     
-    return {"task_id": str(new_task.id), "status": new_task.status}
-
-@router.post("/workflows/{task_id}/run")
-async def run_workflow(
-    task_id: str, 
-    workspace_id: str = Header(...),
-    workspace: Workspace = Depends(get_current_workspace),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    task = await db.get(DBTask, uuid.UUID(task_id))
-    if not task or task.workspace_id != workspace.id:
-        raise HTTPException(status_code=404, detail="Task not found")
-        
-    # Create workflow run
+    # 2. Create WorkflowRun
     run = WorkflowRun(
-        workspace_id=task.workspace_id,
-        task_id=task.id,
-        status="started"
+        workspace_id=workspace.id,
+        task_id=new_task.id,
+        status="queued"
     )
     db.add(run)
     await db.commit()
     await db.refresh(run)
     
-    # Trigger LangGraph synchronously for testing
-    # Fetch the coordinator agent for this workspace
+    # 3. Get coordinator
     result = await db.execute(
         select(Agent).where(Agent.workspace_id == workspace.id, Agent.is_coordinator == True)
     )
@@ -65,27 +66,56 @@ async def run_workflow(
     if not coordinator:
         raise HTTPException(status_code=500, detail="No coordinator agent found for workspace")
         
-    coordinator_id_str = str(coordinator.id)
-
     initial_state = {
         "workflow_run_id": str(run.id),
-        "task_id": str(task.id),
-        "workspace_id": str(task.workspace_id),
+        "task_id": str(new_task.id),
+        "workspace_id": str(workspace.id),
         "user_id": str(current_user.id),
-        "coordinator_agent_id": coordinator_id_str,
-        "current_agent_id": coordinator_id_str,
-        "user_request": task.description,
+        "coordinator_agent_id": str(coordinator.id),
+        "current_agent_id": str(coordinator.id),
+        "user_request": new_task.description,
         "current_step": 0,
         "results": [],
         "total_cost": 0.0,
         "artifact_content": ""
     }
     
-    # Run the graph
-    final_state = await coordinator_app.ainvoke(initial_state)
+    # 4. Trigger background task
+    background_tasks.add_task(run_coordinator_background, initial_state)
+    
+    return {"task_id": str(new_task.id), "workflow_run_id": str(run.id), "status": run.status}
+
+@router.get("/workflows/{run_id}")
+async def get_workflow_status(
+    run_id: str,
+    workspace_id: str = Header(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
+    run = await db.get(WorkflowRun, uuid.UUID(run_id))
+    if not run or run.workspace_id != workspace.id:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+        
+    task = await db.get(DBTask, run.task_id)
+    
+    # Get steps
+    steps_result = await db.execute(
+        select(WorkflowStep).where(WorkflowStep.workflow_run_id == run.id).order_by(WorkflowStep.created_at)
+    )
+    steps = steps_result.scalars().all()
+    
+    # Get events
+    events_result = await db.execute(
+        select(WorkflowEvent).where(WorkflowEvent.workflow_run_id == run.id).order_by(WorkflowEvent.created_at)
+    )
+    events = events_result.scalars().all()
     
     return {
-        "workflow_run_id": str(run.id),
-        "results": final_state.get("results"),
-        "total_cost": final_state.get("total_cost")
+        "id": str(run.id),
+        "task_id": str(run.task_id),
+        "task_description": task.description if task else "",
+        "status": run.status,
+        "created_at": run.created_at.isoformat() if run.created_at else None,
+        "steps": [{"id": str(s.id), "action": s.action, "status": s.status} for s in steps],
+        "events": [{"id": str(e.id), "type": e.event_type, "payload": e.payload} for e in events]
     }

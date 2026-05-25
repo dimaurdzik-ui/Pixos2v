@@ -3,9 +3,59 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Activity, User, Briefcase, FileText, Cpu } from "lucide-react";
+import { Send, Activity, User, Briefcase, FileText, Cpu, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { createWorkflowTask, getWorkflowStatus } from "@/lib/api";
 
 export default function OfficePage() {
+  const [taskInput, setTaskInput] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeRuns, setActiveRuns] = useState<{id: string, description: string, status: string}[]>([]);
+  
+  // Basic polling effect
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+      const runningRuns = activeRuns.filter(r => r.status === "queued" || r.status === "running");
+      
+      if (runningRuns.length > 0) {
+        try {
+          const updatedRuns = await Promise.all(
+            activeRuns.map(async (run) => {
+              if (run.status === "queued" || run.status === "running") {
+                const statusData = await getWorkflowStatus(run.id);
+                return { ...run, status: statusData.status };
+              }
+              return run;
+            })
+          );
+          setActiveRuns(updatedRuns);
+        } catch (error) {
+          console.error("Polling error", error);
+        }
+      }
+    }, 3000);
+    
+    return () => clearInterval(pollInterval);
+  }, [activeRuns]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskInput.trim()) return;
+    
+    setIsSubmitting(true);
+    try {
+      const data = await createWorkflowTask(taskInput);
+      setActiveRuns(prev => [
+        { id: data.workflow_run_id, description: taskInput, status: data.status },
+        ...prev
+      ]);
+      setTaskInput("");
+    } catch (error) {
+      console.error("Failed to create task", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
@@ -18,13 +68,16 @@ export default function OfficePage() {
       {/* Task Input */}
       <Card className="border-primary/20 shadow-[0_0_15px_rgba(var(--primary),0.1)]">
         <CardContent className="p-6">
-          <form className="relative" onSubmit={(e) => e.preventDefault()}>
+          <form className="relative" onSubmit={handleSubmit}>
             <Input 
+              value={taskInput}
+              onChange={(e) => setTaskInput(e.target.value)}
               placeholder="What should your AI team do today? E.g. 'Research our competitors and send me an email summary'" 
               className="pr-12 py-6 text-lg border-muted bg-background/50"
+              disabled={isSubmitting}
             />
-            <Button type="submit" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2">
-              <Send className="h-4 w-4" />
+            <Button type="submit" size="icon" disabled={isSubmitting} className="absolute right-2 top-1/2 -translate-y-1/2">
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </form>
         </CardContent>
@@ -81,22 +134,18 @@ export default function OfficePage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {/* Activity Items Mock */}
-              <div className="flex items-center gap-4 text-sm border-b border-border/50 pb-4">
-                <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></div>
-                <div className="flex-1 font-medium text-foreground">System Coordinator created a new plan</div>
-                <div className="text-muted-foreground">2m ago</div>
-              </div>
-              <div className="flex items-center gap-4 text-sm border-b border-border/50 pb-4">
-                <div className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></div>
-                <div className="flex-1 font-medium text-foreground">Research Agent requires approval for <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded">gmail.send</span></div>
-                <div className="text-muted-foreground">15m ago</div>
-              </div>
-              <div className="flex items-center gap-4 text-sm">
-                <div className="w-2 h-2 rounded-full bg-green-500 shrink-0"></div>
-                <div className="flex-1 font-medium text-foreground">Marketing Agent published a new artifact</div>
-                <div className="text-muted-foreground">1h ago</div>
-              </div>
+              {activeRuns.map((run) => (
+                <div key={run.id} className="flex items-center gap-4 text-sm border-b border-border/50 pb-4">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${run.status === 'completed' ? 'bg-green-500' : run.status === 'failed' ? 'bg-red-500' : run.status === 'paused_for_approval' ? 'bg-amber-500' : 'bg-blue-500'}`}></div>
+                  <div className="flex-1 font-medium text-foreground">
+                    Workflow <span className="font-mono text-xs text-muted-foreground">{run.id.slice(0, 8)}</span>: {run.description}
+                  </div>
+                  <div className="text-muted-foreground capitalize">{run.status.replace(/_/g, ' ')}</div>
+                </div>
+              ))}
+              {activeRuns.length === 0 && (
+                <div className="text-sm text-muted-foreground italic">No recent activity. Start a workflow above.</div>
+              )}
             </div>
           </CardContent>
         </Card>

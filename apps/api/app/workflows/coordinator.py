@@ -3,7 +3,7 @@ import asyncio
 from typing import TypedDict, Any, Optional
 from langgraph.graph import StateGraph, END
 from apps.api.app.db.database import AsyncSessionLocal
-from apps.api.app.db.models.workflow import WorkflowStep, WorkflowEvent
+from apps.api.app.db.models.workflow import WorkflowStep, WorkflowEvent, WorkflowRun
 from apps.api.app.db.models.policy import PendingApproval
 from apps.api.app.services.tools.gateway import ToolGateway
 
@@ -27,6 +27,10 @@ class CoordinatorState(TypedDict):
 async def start_run(state: CoordinatorState):
     """Initializes the workflow step in DB"""
     async with AsyncSessionLocal() as db:
+        run = await db.get(WorkflowRun, uuid.UUID(state["workflow_run_id"]))
+        if run:
+            run.status = "running"
+            
         step = WorkflowStep(
             workflow_run_id=uuid.UUID(state["workflow_run_id"]),
             step_order=state["current_step"],
@@ -163,6 +167,10 @@ async def check_policy(state: CoordinatorState):
                     )
                     db.add(event)
                     
+                run = await db.get(WorkflowRun, uuid.UUID(state["workflow_run_id"]))
+                if run:
+                    run.status = "paused_for_approval"
+                    
                 await db.commit()
                 await db.refresh(approval)
                 
@@ -204,6 +212,10 @@ async def execute_tools(state: CoordinatorState):
                     payload={"results": results}
                 )
                 db.add(event)
+                    
+                run = await db.get(WorkflowRun, uuid.UUID(state["workflow_run_id"]))
+                if run:
+                    run.status = "completed"
             await db.commit()
             
     return {"results": results, "status": "completed"}

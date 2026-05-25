@@ -47,3 +47,14 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Workflow endpoints
+export const createWorkflowTask = async (description: string) => {
+  const response = await api.post('/api/v1/workflows/tasks', { description });
+  return response.data;
+};
+
+export const getWorkflowStatus = async (runId: string) => {
+  const response = await api.get(`/api/v1/workflows/workflows/${runId}`);
+  return response.data;
+};
