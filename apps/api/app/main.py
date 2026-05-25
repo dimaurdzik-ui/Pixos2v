@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apps.api.app.core.config import settings
-from apps.api.app.api.endpoints import workflows, approvals, artifacts, agents, teams, billing
+from apps.api.app.api.endpoints import workflows, approvals, artifacts, agents, teams, billing, policies
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -24,6 +24,7 @@ app.include_router(artifacts.router, prefix=settings.API_V1_STR + "/artifacts", 
 app.include_router(agents.router, prefix=settings.API_V1_STR + "/agents", tags=["agents"])
 app.include_router(teams.router, prefix=settings.API_V1_STR + "/teams", tags=["teams"])
 app.include_router(billing.router, prefix=settings.API_V1_STR + "/billing", tags=["billing"])
+app.include_router(policies.router, prefix=settings.API_V1_STR + "/policies", tags=["policies"])
 
 @app.get("/")
 def read_root():

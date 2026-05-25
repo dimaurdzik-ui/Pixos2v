@@ -19,7 +19,7 @@ api.interceptors.request.use(
       // 1. Try Clerk Token first
       // @ts-expect-error window.Clerk is injected by ClerkProvider
       if (window.Clerk && window.Clerk.session) {
-        // @ts-expect-error
+        // @ts-expect-error window.Clerk.session type missing
         token = await window.Clerk.session.getToken();
       }
       
@@ -138,5 +138,18 @@ export const getBillingBalance = async () => {
 
 export const getBillingHistory = async () => {
   const response = await api.get('/api/v1/billing/history');
+  return response.data;
+};
+
+// Policy endpoints
+export const getPolicies = async () => {
+  const response = await api.get('/api/v1/policies');
+  return response.data;
+};
+
+export const updatePolicy = async (toolName: string, approvalRequired: string) => {
+  const response = await api.put(`/api/v1/policies/${toolName}`, {
+    approval_required: approvalRequired
+  });
   return response.data;
 };
