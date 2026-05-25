@@ -1,52 +1,49 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+import axios from 'axios';
 
-export const DEFAULT_WORKSPACE_ID = "00000000-0000-0000-0000-000000000000";
+// In development, the API is running on localhost:8000
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export const api = {
-  async createTask(description: string) {
-    const res = await fetch(`${API_BASE_URL}/workflows/tasks`, { 
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "workspace-id": DEFAULT_WORKSPACE_ID
-      },
-      body: JSON.stringify({ description })
-    });
-    if (!res.ok) throw new Error("Failed to create task");
-    return res.json();
+export const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
   },
+});
 
-  async runWorkflow(taskId: string) {
-    const res = await fetch(`${API_BASE_URL}/workflows/workflows/${taskId}/run`, { 
-      method: "POST" 
-    });
-    if (!res.ok) throw new Error("Failed to run workflow");
-    return res.json();
-  },
-  
-  async getApprovals() {
-    const res = await fetch(`${API_BASE_URL}/approvals`, {
-      headers: {
-        "workspace-id": DEFAULT_WORKSPACE_ID
+// Request interceptor to attach Mock Auth or real token
+api.interceptors.request.use(
+  (config) => {
+    // Check local storage for mock user email
+    if (typeof window !== 'undefined') {
+      const mockEmail = localStorage.getItem('pixos_mock_user_email');
+      const mockWorkspace = localStorage.getItem('pixos_mock_workspace_id');
+      
+      if (mockEmail) {
+        config.headers['Authorization'] = `Bearer ${mockEmail}`;
       }
-    });
-    if (!res.ok) throw new Error("Failed to fetch approvals");
-    return res.json();
+      
+      if (mockWorkspace) {
+        config.headers['workspace-id'] = mockWorkspace;
+      }
+    }
+    return config;
   },
-  
-  async approveAction(approvalId: string) {
-    const res = await fetch(`${API_BASE_URL}/approvals/${approvalId}/approve`, {
-      method: "POST"
-    });
-    if (!res.ok) throw new Error("Failed to approve action");
-    return res.json();
-  },
-  
-  async rejectAction(approvalId: string) {
-    const res = await fetch(`${API_BASE_URL}/approvals/${approvalId}/reject`, {
-      method: "POST"
-    });
-    if (!res.ok) throw new Error("Failed to reject action");
-    return res.json();
+  (error) => {
+    return Promise.reject(error);
   }
-};
+);
+
+// Response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Handle unauthorized or other global errors here
+    if (error.response?.status === 401) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('pixos_mock_user_email');
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
