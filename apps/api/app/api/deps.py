@@ -174,3 +174,10 @@ def require_permission(required_permission: str):
              
         return True
     return permission_checker
+
+async def require_super_admin(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    if not current_user.is_super_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Requires platform admin privileges")
+    return current_user

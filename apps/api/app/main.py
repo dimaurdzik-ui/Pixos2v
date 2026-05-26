@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apps.api.app.core.config import settings
-from apps.api.app.api.endpoints import workflows, approvals, artifacts, agents, teams, billing, policies
+from apps.api.app.api.endpoints import agents, workflows, chat, teams, billing, policies, approvals, artifacts, admin, integrations
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -19,12 +19,15 @@ app.add_middleware(
 )
 
 app.include_router(workflows.router, prefix=settings.API_V1_STR + "/workflows", tags=["workflows"])
+app.include_router(chat.router, prefix=settings.API_V1_STR + "/chat", tags=["chat"])
 app.include_router(approvals.router, prefix=settings.API_V1_STR + "/approvals", tags=["approvals"])
 app.include_router(artifacts.router, prefix=settings.API_V1_STR + "/artifacts", tags=["artifacts"])
+app.include_router(admin.router, prefix=settings.API_V1_STR + "/admin", tags=["admin"])
 app.include_router(agents.router, prefix=settings.API_V1_STR + "/agents", tags=["agents"])
 app.include_router(teams.router, prefix=settings.API_V1_STR + "/teams", tags=["teams"])
 app.include_router(billing.router, prefix=settings.API_V1_STR + "/billing", tags=["billing"])
 app.include_router(policies.router, prefix=settings.API_V1_STR + "/policies", tags=["policies"])
+app.include_router(integrations.router, prefix=settings.API_V1_STR + "/integrations", tags=["integrations"])
 
 @app.get("/")
 def read_root():

@@ -108,6 +108,17 @@ export const sendAgentChat = async (agentId: string, message: string) => {
   return response.data;
 };
 
+// ─── Chat endpoints ─────────────────────────────────────────────
+export const getConversations = async () => {
+  const response = await api.get('/api/v1/chat/conversations');
+  return response.data;
+};
+
+export const getConversationMessages = async (conversationId: string) => {
+  const response = await api.get(`/api/v1/chat/conversations/${conversationId}/messages`);
+  return response.data;
+};
+
 // ─── Team endpoints ──────────────────────────────────────────────
 export const getTeams = async () => {
   const response = await api.get('/api/v1/teams');
@@ -145,5 +156,35 @@ export const updatePolicy = async (toolName: string, approvalRequired: string) =
   const response = await api.put(`/api/v1/policies/${toolName}`, {
     approval_required: approvalRequired,
   });
+  return response.data;
+};
+
+// ─── Admin endpoints ─────────────────────────────────────────────
+export const getSystemConfig = async () => {
+  const response = await api.get('/api/v1/admin/system-config');
+  return response.data;
+};
+
+export const updateSystemConfig = async (keyName: string, value: string) => {
+  const response = await api.post('/api/v1/admin/system-config', {
+    key_name: keyName,
+    value: value,
+  });
+  return response.data;
+};
+
+// ─── Integration endpoints ───────────────────────────────────────────
+export const getIntegrations = async () => {
+  const response = await api.get('/api/v1/integrations');
+  return response.data;
+};
+
+export const connectIntegration = async (provider: string, token: string) => {
+  const response = await api.post('/api/v1/integrations', { provider, token });
+  return response.data;
+};
+
+export const disconnectIntegration = async (integrationId: string) => {
+  const response = await api.delete(`/api/v1/integrations/${integrationId}`);
   return response.data;
 };

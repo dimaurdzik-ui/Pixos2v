@@ -1,39 +1,75 @@
 "use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Activity, User, Briefcase, FileText, Cpu, Loader2, Bot } from "lucide-react";
+import { Send, User, Bot, Loader2, MessageSquarePlus, Activity, Briefcase } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { getAgents, getWorkflows, getPendingApprovals, sendAgentChat } from "@/lib/api";
+import { getConversations, getConversationMessages, sendAgentChat, getAgents, getWorkflows, getPendingApprovals } from "@/lib/api";
+import { toast } from "sonner";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { formatDistanceToNow } from "date-fns";
 
-type Message = { id: string, role: "user" | "assistant", content: string };
+type Conversation = {
+  id: string;
+  title: string;
+  conversation_type: string;
+  agent_id: string | null;
+  team_id: string | null;
+  created_at: string;
+};
+
+type Message = { 
+  id: string; 
+  sender_type: "user" | "agent" | "system"; 
+  content: string;
+  created_at: string;
+};
 
 export default function OfficePage() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  
   const [taskInput, setTaskInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeRuns, setActiveRuns] = useState<{id: string, description: string, status: string}[]>([]);
+  const [isLoadingChats, setIsLoadingChats] = useState(true);
   
-  const [metrics, setMetrics] = useState({ agents: 0, workflows: 0, approvals: 0 });
-  const [messages, setMessages] = useState<Message[]>([]);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [coordinatorId, setCoordinatorId] = useState<string | null>(null);
-  
+  const [metrics, setMetrics] = useState({ agents: 0, workflows: 0, approvals: 0 });
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    fetchMetrics();
+    fetchInitialData();
   }, []);
+
+  useEffect(() => {
+    if (activeConversationId) {
+      fetchMessages(activeConversationId);
+    } else {
+      setMessages([]);
+    }
+  }, [activeConversationId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const fetchMetrics = async () => {
+  const fetchInitialData = async () => {
     try {
-      const [agentsData, workflowsData, approvalsData] = await Promise.all([
+      setIsLoadingChats(true);
+      const [convosData, agentsData, workflowsData, approvalsData] = await Promise.all([
+        getConversations(),
         getAgents(),
         getWorkflows(),
         getPendingApprovals()
       ]);
+      
+      setConversations(convosData);
+      if (convosData.length > 0) {
+        setActiveConversationId(convosData[0].id);
+      }
+      
       setMetrics({
         agents: agentsData.length,
         workflows: workflowsData.length,
@@ -45,164 +81,201 @@ export default function OfficePage() {
         setCoordinatorId(coordinator.id);
       }
     } catch (error) {
-      console.error("Failed to fetch metrics", error);
+      toast.error("Failed to load office data");
+    } finally {
+      setIsLoadingChats(false);
     }
+  };
+
+  const fetchMessages = async (id: string) => {
+    try {
+      const data = await getConversationMessages(id);
+      setMessages(data);
+    } catch (error) {
+      console.error("Failed to fetch messages", error);
+    }
+  };
+
+  const handleNewChat = () => {
+    setActiveConversationId(null);
+    setMessages([]);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!taskInput.trim() || !coordinatorId) return;
     
-    const userMessage: Message = { id: Date.now().toString(), role: "user", content: taskInput };
+    const userMessage: Message = { 
+      id: Date.now().toString(), 
+      sender_type: "user", 
+      content: taskInput,
+      created_at: new Date().toISOString()
+    };
+    
     setMessages(prev => [...prev, userMessage]);
     setTaskInput("");
     setIsSubmitting(true);
     
     try {
       const data = await sendAgentChat(coordinatorId, userMessage.content);
-      const assistantMessage: Message = { id: (Date.now() + 1).toString(), role: "assistant", content: data.message };
+      const assistantMessage: Message = { 
+        id: (Date.now() + 1).toString(), 
+        sender_type: "agent", 
+        content: data.message,
+        created_at: new Date().toISOString()
+      };
       setMessages(prev => [...prev, assistantMessage]);
-      fetchMetrics(); // Refresh workflows/approvals just in case
+      
+      // If this was a new chat, we should refresh the conversation list
+      if (!activeConversationId) {
+        const convos = await getConversations();
+        setConversations(convos);
+        if (convos.length > 0) {
+          setActiveConversationId(convos[0].id);
+        }
+      }
     } catch (error) {
-      console.error("Failed to send chat", error);
+      toast.error("Failed to send message");
     } finally {
       setIsSubmitting(false);
     }
   };
+
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Virtual Office</h2>
-          <p className="text-muted-foreground mt-1">Your AI workforce is standing by.</p>
+    <div className="flex h-full w-full bg-background border-t">
+      {/* Sidebar: Conversation List */}
+      <div className="w-80 border-r flex flex-col bg-muted/20">
+        <div className="p-4 border-b flex items-center justify-between">
+          <h2 className="font-semibold text-lg tracking-tight">Recent Chats</h2>
+          <Button variant="ghost" size="icon" onClick={handleNewChat}>
+            <MessageSquarePlus className="h-5 w-5" />
+          </Button>
         </div>
-      </div>
-
-      {/* Task Input */}
-      <Card className="border-primary/20 shadow-[0_0_15px_rgba(var(--primary),0.1)]">
-        <CardContent className="p-6">
-          <form className="relative" onSubmit={handleSubmit}>
-            <Input 
-              value={taskInput}
-              onChange={(e) => setTaskInput(e.target.value)}
-              placeholder="What should your AI team do today? E.g. 'Research our competitors and send me an email summary'" 
-              className="pr-12 py-6 text-lg border-muted bg-background/50"
-              disabled={isSubmitting}
-            />
-            <Button type="submit" size="icon" disabled={isSubmitting} className="absolute right-2 top-1/2 -translate-y-1/2">
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Agents</CardTitle>
-            <User className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{metrics.agents}</div>
-            <p className="text-xs text-muted-foreground">Registered in your workspace</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Workflows</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{metrics.workflows}</div>
-            <p className="text-xs text-muted-foreground">Lifetime tasks started</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Approvals</CardTitle>
-            <Briefcase className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-500">{metrics.approvals}</div>
-            <p className="text-xs text-muted-foreground">Requires your attention</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Recent Artifacts</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">12</div>
-            <p className="text-xs text-muted-foreground">Reports and summaries</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card className="col-span-1">
-          <CardHeader>
-            <CardTitle>Chat with Coordinator</CardTitle>
-            <CardDescription>Direct line to your System Coordinator.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 pb-4">
-              {messages.map((msg) => (
-                <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                  <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-primary/20' : 'bg-primary/10 border border-primary/30'}`}>
-                    {msg.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4 text-primary" />}
-                  </div>
-                  <div className={`text-sm py-2 px-3 rounded-xl max-w-[80%] ${msg.role === 'user' ? 'bg-primary/10 text-right' : 'bg-card border border-border'}`}>
-                    {msg.content}
-                  </div>
-                </div>
-              ))}
-              {isSubmitting && (
-                <div className="flex gap-3">
-                  <div className="h-8 w-8 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0">
-                    <Bot className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="text-sm py-2 px-3 rounded-xl bg-card border border-border flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce"></span>
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                  </div>
-                </div>
-              )}
-              {messages.length === 0 && (
-                <div className="text-sm text-muted-foreground italic text-center py-8">No messages yet. Send a request above!</div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          </CardContent>
-        </Card>
         
-        <Card className="col-span-1">
-          <CardHeader>
-            <CardTitle>Coordinator Status</CardTitle>
-            <CardDescription>Your main routing agent is active.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4 mb-4 p-4 rounded-lg bg-card border border-border">
-              <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center border border-primary/50 shrink-0">
-                <Cpu className="h-6 w-6 text-primary" />
+        <ScrollArea className="flex-1">
+          {isLoadingChats ? (
+            <div className="p-8 flex justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              No conversations yet. Start a new chat!
+            </div>
+          ) : (
+            <div className="p-2 space-y-1">
+              {conversations.map(convo => (
+                <button
+                  key={convo.id}
+                  onClick={() => setActiveConversationId(convo.id)}
+                  className={`w-full text-left px-3 py-3 rounded-lg text-sm transition-colors ${
+                    activeConversationId === convo.id 
+                      ? 'bg-primary/10 hover:bg-primary/15 font-medium' 
+                      : 'hover:bg-muted'
+                  }`}
+                >
+                  <div className="truncate mb-1">{convo.title || "New Conversation"}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {convo.created_at ? formatDistanceToNow(new Date(convo.created_at), { addSuffix: true }) : ""}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+      </div>
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col relative">
+        {/* Top metrics bar */}
+        <div className="h-14 border-b flex items-center justify-end px-6 gap-6 bg-background/95 backdrop-blur z-10">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <User className="h-4 w-4" /> <span>{metrics.agents} Agents</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Activity className="h-4 w-4" /> <span>{metrics.workflows} Workflows</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-amber-500 font-medium">
+            <Briefcase className="h-4 w-4" /> <span>{metrics.approvals} Approvals</span>
+          </div>
+        </div>
+
+        {/* Chat Messages */}
+        <ScrollArea className="flex-1 p-6">
+          <div className="max-w-3xl mx-auto space-y-6 pb-20">
+            {messages.length === 0 && !isSubmitting && (
+              <div className="text-center mt-20 space-y-4">
+                <div className="h-16 w-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Bot className="h-8 w-8 text-primary" />
+                </div>
+                <h3 className="text-xl font-semibold">How can your team help today?</h3>
+                <p className="text-muted-foreground max-w-sm mx-auto">
+                  Ask the Coordinator to research a topic, manage your emails, or start a new workflow.
+                </p>
               </div>
-              <div>
-                <h3 className="font-semibold text-lg">System Coordinator</h3>
-                <div className="text-sm text-green-500 flex items-center gap-2 mt-1">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                  </span>
-                  Online & Ready
+            )}
+            
+            {messages.map((msg) => (
+              <div key={msg.id} className={`flex gap-4 ${msg.sender_type === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 mt-1 ${
+                  msg.sender_type === 'user' 
+                    ? 'bg-primary/20' 
+                    : 'bg-primary/10 border border-primary/30'
+                }`}>
+                  {msg.sender_type === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4 text-primary" />}
+                </div>
+                <div className={`text-[15px] py-3 px-4 rounded-2xl max-w-[80%] whitespace-pre-wrap leading-relaxed shadow-sm ${
+                  msg.sender_type === 'user' 
+                    ? 'bg-primary text-primary-foreground rounded-tr-sm' 
+                    : 'bg-card border border-border rounded-tl-sm'
+                }`}>
+                  {msg.content}
                 </div>
               </div>
-            </div>
-            <div className="text-sm text-muted-foreground leading-relaxed">
-              Coordinator is currently waiting for incoming tasks to route to the appropriate team members. It has full context of your workspace tools and policies.
-            </div>
-          </CardContent>
-        </Card>
+            ))}
+            
+            {isSubmitting && (
+              <div className="flex gap-4">
+                <div className="h-8 w-8 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0 mt-1">
+                  <Bot className="h-4 w-4 text-primary" />
+                </div>
+                <div className="py-3 px-4 rounded-2xl bg-card border border-border rounded-tl-sm shadow-sm flex items-center gap-1.5 h-12">
+                  <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce"></span>
+                  <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                  <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </ScrollArea>
+
+        {/* Input Area */}
+        <div className="p-4 bg-background border-t">
+          <div className="max-w-3xl mx-auto relative">
+            <form onSubmit={handleSubmit}>
+              <Input 
+                value={taskInput}
+                onChange={(e) => setTaskInput(e.target.value)}
+                placeholder="Message Coordinator..." 
+                className="pr-12 py-6 text-base rounded-full shadow-sm bg-muted/50 border-muted-foreground/20 focus-visible:ring-primary/50"
+                disabled={isSubmitting || !coordinatorId}
+              />
+              <Button 
+                type="submit" 
+                size="icon" 
+                disabled={isSubmitting || !taskInput.trim() || !coordinatorId} 
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full h-9 w-9"
+              >
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4 ml-0.5" />}
+              </Button>
+            </form>
+            {!coordinatorId && !isLoadingChats && (
+              <p className="text-xs text-destructive text-center mt-2">
+                System Coordinator is offline or missing. Please create an agent with coordinator flag.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

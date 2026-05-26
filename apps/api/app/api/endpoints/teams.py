@@ -7,7 +7,7 @@ from typing import Optional
 
 from apps.api.app.db.database import get_db
 from apps.api.app.db.models.core import Workspace
-from apps.api.app.db.models.agents import Team
+from apps.api.app.db.models.agents import Team, TeamMember, Agent
 from apps.api.app.api.deps import get_current_workspace, require_permission
 
 router = APIRouter()
@@ -15,6 +15,11 @@ router = APIRouter()
 class TeamCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    template: Optional[str] = None
+
+class TeamMemberAdd(BaseModel):
+    agent_id: str
+    role_in_team: str = "member"
 
 @router.get("")
 async def get_teams(
@@ -75,5 +80,62 @@ async def delete_team(
         raise HTTPException(status_code=404, detail="Team not found")
         
     await db.delete(team)
+    await db.commit()
+    return {"status": "success"}
+
+@router.post("/{team_id}/members")
+async def add_team_member(
+    team_id: str,
+    member_in: TeamMemberAdd,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+    _ = Depends(require_permission("manage_teams"))
+):
+    team = await db.get(Team, uuid.UUID(team_id))
+    if not team or team.workspace_id != workspace.id:
+        raise HTTPException(status_code=404, detail="Team not found")
+        
+    agent = await db.get(Agent, uuid.UUID(member_in.agent_id))
+    if not agent or agent.workspace_id != workspace.id:
+        raise HTTPException(status_code=404, detail="Agent not found")
+        
+    member = TeamMember(
+        team_id=team.id,
+        agent_id=agent.id,
+        role_in_team=member_in.role_in_team
+    )
+    db.add(member)
+    
+    # Also update agent's team_id for backward compatibility
+    agent.team_id = team.id
+    
+    await db.commit()
+    return {"status": "success"}
+
+@router.delete("/{team_id}/members/{agent_id}")
+async def remove_team_member(
+    team_id: str,
+    agent_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db),
+    _ = Depends(require_permission("manage_teams"))
+):
+    team = await db.get(Team, uuid.UUID(team_id))
+    if not team or team.workspace_id != workspace.id:
+        raise HTTPException(status_code=404, detail="Team not found")
+        
+    result = await db.execute(
+        select(TeamMember)
+        .where(TeamMember.team_id == team.id, TeamMember.agent_id == uuid.UUID(agent_id))
+    )
+    member = result.scalar_one_or_none()
+    
+    if member:
+        await db.delete(member)
+        
+    agent = await db.get(Agent, uuid.UUID(agent_id))
+    if agent and agent.team_id == team.id:
+        agent.team_id = None
+        
     await db.commit()
     return {"status": "success"}

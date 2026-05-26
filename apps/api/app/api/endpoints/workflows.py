@@ -65,7 +65,7 @@ async def create_task(
     result = await db.execute(select(CreditBalance).where(CreditBalance.workspace_id == workspace.id))
     balance = result.scalars().first()
     if not balance or balance.balance < 10:
-        raise HTTPException(status_code=402, detail="Insufficient credits. Please recharge your balance.")
+        raise HTTPException(status_code=402, detail="INSUFFICIENT_CREDITS")
 
     # 2. Create task
     new_task = DBTask(
