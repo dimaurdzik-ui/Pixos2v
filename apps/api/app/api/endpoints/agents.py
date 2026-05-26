@@ -35,7 +35,7 @@ async def get_agents(
             "name": a.name,
             "description": a.description,
             "is_coordinator": a.is_coordinator,
-            "model_name": a.model_name,
+            "model_name": a.model,
             "system_prompt": a.system_prompt,
             "created_at": a.created_at.isoformat() if a.created_at else None
         }
@@ -54,8 +54,7 @@ async def create_agent(
         name=agent_in.name,
         description=agent_in.description,
         system_prompt=agent_in.system_prompt,
-        model_name=agent_in.model_name,
-        temperature=agent_in.temperature,
+        model=agent_in.model_name,
         is_coordinator=False
     )
     db.add(new_agent)
