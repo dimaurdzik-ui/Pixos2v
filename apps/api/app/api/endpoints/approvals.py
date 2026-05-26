@@ -8,6 +8,7 @@ from apps.api.app.db.models.policy import PendingApproval
 from apps.api.app.db.models.core import Workspace, AuditLog, User
 from apps.api.app.api.deps import get_current_workspace, require_permission, get_current_user
 from apps.api.app.db.models.workflow import WorkflowEvent, WorkflowRun
+from apps.api.app.core.statuses import ApprovalStatus
 
 router = APIRouter()
 
@@ -19,7 +20,7 @@ async def get_approvals(
     result = await db.execute(
         select(PendingApproval).where(
             PendingApproval.workspace_id == workspace.id,
-            PendingApproval.status == "pending"
+            PendingApproval.status == ApprovalStatus.pending
         )
     )
     return result.scalars().all()
@@ -36,11 +37,11 @@ async def approve_tool(
     if not approval or approval.workspace_id != workspace.id:
         raise HTTPException(status_code=404, detail="Approval not found")
         
-    if approval.status != "pending":
+    if approval.status != ApprovalStatus.pending:
         return {"status": approval.status, "message": "Approval already processed or executing"}
         
     # Idempotency / Execution Status
-    approval.status = "executing"
+    approval.status = ApprovalStatus.executing
     await db.commit() # lock the state
     
     # Audit Log
@@ -112,10 +113,10 @@ async def reject_tool(
     if not approval or approval.workspace_id != workspace.id:
         raise HTTPException(status_code=404, detail="Approval not found")
         
-    if approval.status != "pending":
+    if approval.status != ApprovalStatus.pending:
         return {"status": approval.status, "message": "Approval already processed"}
         
-    approval.status = "rejected"
+    approval.status = ApprovalStatus.rejected
     
     # Audit Log
     audit = AuditLog(

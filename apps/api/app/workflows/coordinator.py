@@ -177,83 +177,7 @@ async def agent_execute(state: CoordinatorState):
             
     return {"tool_calls": tool_calls, "messages": messages}
 
-async def check_policy(state: CoordinatorState):
-    """Real implementation of Policy Engine: checks DB for ToolPolicy"""
-    from apps.api.app.db.models.policy import ToolPolicy
-    from sqlalchemy import select
-    
-    tool_calls = state.get("tool_calls", [])
-    if not tool_calls:
-        # If no tools were called, the workflow is successfully completed.
-        async with AsyncSessionLocal() as db:
-            run = await db.get(WorkflowRun, uuid.UUID(state["workflow_run_id"]))
-            if run:
-                run.status = "completed"
-            await db.commit()
-        return {"status": "completed"}
-        
-    async with AsyncSessionLocal() as db:
-        for tc in tool_calls:
-            tool_name = tc["tool"]
-            
-            # Query ToolPolicy from DB for this workspace
-            result = await db.execute(
-                select(ToolPolicy).where(
-                    ToolPolicy.workspace_id == uuid.UUID(state["workspace_id"]),
-                    ToolPolicy.tool_name == tool_name
-                )
-            )
-            policy = result.scalar_one_or_none()
-            
-            approval_required = "approval_optional" # default fallback
-            if policy:
-                approval_required = policy.approval_required
-                
-            if approval_required == "approval_required":
-                # Create pending approval
-                approval = PendingApproval(
-                    workspace_id=uuid.UUID(state["workspace_id"]),
-                    workflow_run_id=uuid.UUID(state["workflow_run_id"]),
-                    tool_call_id=tc.get("id", str(uuid.uuid4())),
-                    agent_id=uuid.UUID(state["current_agent_id"]),
-                    requested_by=uuid.UUID(state["user_id"]) if state.get("user_id") else None,
-                    risk_level=policy.risk_level if policy else "HIGH",
-                    action_type=tool_name,
-                    payload_preview=tc["payload"],
-                    status="pending"
-                )
-                db.add(approval)
-                
-                if state.get("workflow_step_id"):
-                    event = WorkflowEvent(
-                        workflow_run_id=uuid.UUID(state["workflow_run_id"]),
-                        workflow_step_id=uuid.UUID(state["workflow_step_id"]),
-                        event_type="paused_for_approval",
-                        payload={"approval_id": str(approval.id), "tool": tool_name}
-                    )
-                    db.add(event)
-                    
-                run = await db.get(WorkflowRun, uuid.UUID(state["workflow_run_id"]))
-                if run:
-                    run.status = "paused_for_approval"
-                    
-                await db.commit()
-                await db.refresh(approval)
-                
-                return {"status": "paused_for_approval", "pending_approval_id": str(approval.id)}
-                
-    return {"status": "approved"}
-
-def route_after_policy(state: CoordinatorState):
-    if state["status"] == "paused_for_approval":
-        return "pause"
-    elif state["status"] == "completed":
-        return "END"
-    return "execute_tools"
-
 def route_after_execute(state: CoordinatorState):
-    if state.get("tool_calls"): # If we dynamically added new tools during execution (sub-agents)
-        return "policy"
     return "agent"
 
 async def execute_tools(state: CoordinatorState):
@@ -264,6 +188,17 @@ async def execute_tools(state: CoordinatorState):
     for tc in state.get("tool_calls", []):
         tool = tc["tool"]
         tool_call_id = tc.get("id", "unknown")
+        
+        # Build context for ToolGateway
+        context = {
+            "workspace_id": state.get("workspace_id"),
+            "workflow_run_id": state.get("workflow_run_id"),
+            "agent_id": state.get("current_agent_id"),
+            "workflow_step_id": state.get("workflow_step_id"),
+            "user_id": state.get("user_id"),
+            "tool_call_id": tool_call_id
+        }
+        
         try:
             # 2. SUB-AGENT EXECUTION
             if tool.startswith("delegate_to_agent_"):
@@ -291,12 +226,11 @@ async def execute_tools(state: CoordinatorState):
                         tool_result = await execute_sub_agent(agent, tc.get("payload", {}).get("task", ""), messages, state)
             else:
                 # Delegate execution to the ToolGateway
-                context = {
-                    "workspace_id": state.get("workspace_id"),
-                    "workflow_run_id": state.get("workflow_run_id")
-                }
                 tool_result = await ToolGateway.execute(tool, tc.get("payload", {}), context)
         except Exception as e:
+            from langgraph.errors import NodeInterrupt
+            if isinstance(e, NodeInterrupt):
+                raise
             tool_result = f"Error executing tool {tool}: {str(e)}"
             
         results.append({
@@ -326,11 +260,14 @@ async def execute_tools(state: CoordinatorState):
                 db.add(event)
             await db.commit()
             
-    # Check if we accumulated any nested tool calls from sub-agents
-    sub_agent_tools = state.get("sub_agent_tool_calls", [])
-    if sub_agent_tools:
-        # Clear them from sub_agent array and put them in the main tool_calls to go to policy
-        return {"results": results, "messages": messages, "tool_calls": sub_agent_tools, "sub_agent_tool_calls": [], "status": "running"}
+    # If no tool calls were made initially in agent_execute
+    if not state.get("tool_calls", []) and not state.get("sub_agent_tool_calls", []):
+        async with AsyncSessionLocal() as db:
+            run = await db.get(WorkflowRun, uuid.UUID(state["workflow_run_id"]))
+            if run:
+                run.status = "completed"
+            await db.commit()
+        return {"status": "completed"}
         
     return {"results": results, "messages": messages, "tool_calls": [], "status": "running"}
 
@@ -404,29 +341,26 @@ builder = StateGraph(CoordinatorState)
 
 builder.add_node("start", start_run)
 builder.add_node("agent", agent_execute)
-builder.add_node("policy", check_policy)
 builder.add_node("execute", execute_tools)
-builder.add_node("pause", lambda s: {"status": "paused_for_approval"})
 
-def route_after_pause(state: CoordinatorState):
-    if state["status"] == "running":
-        return "execute"
-    return "END"
+def route_after_agent(state: CoordinatorState):
+    if not state.get("tool_calls"):
+        return "END"
+    return "execute"
+
+def route_after_execute(state: CoordinatorState):
+    if state.get("status") == "completed":
+        return "END"
+    return "agent"
 
 builder.set_entry_point("start")
 builder.add_edge("start", "agent")
-builder.add_edge("agent", "policy")
-builder.add_conditional_edges("policy", route_after_policy, {
-    "pause": "pause",
-    "execute_tools": "execute",
+builder.add_conditional_edges("agent", route_after_agent, {
+    "execute": "execute",
     "END": END
 })
 builder.add_conditional_edges("execute", route_after_execute, {
-    "policy": "policy",
-    "agent": "agent"
-})
-builder.add_conditional_edges("pause", route_after_pause, {
-    "execute": "execute",
+    "agent": "agent",
     "END": END
 })
 
