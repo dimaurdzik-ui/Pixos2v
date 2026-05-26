@@ -1,8 +1,41 @@
-from fastapi import FastAPI
+import logging
+import uuid
+from fastapi import FastAPI, Request
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from apps.api.app.core.config import settings
 from apps.api.app.api.endpoints import agents, workflows, chat, teams, billing, policies, approvals, artifacts, admin, integrations, stripe_webhooks, oauth, users
+
+# Configure Structured Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - [req_id=%(request_id)s] - %(message)s'
+)
+# Provide default request_id for logs outside request context
+old_factory = logging.getLogRecordFactory()
+def record_factory(*args, **kwargs):
+    record = old_factory(*args, **kwargs)
+    record.request_id = getattr(record, 'request_id', 'N/A')
+    return record
+logging.setLogRecordFactory(record_factory)
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        # Set request_id in context or attach to request
+        request.state.request_id = request_id
+        
+        # Log request start
+        logger = logging.getLogger("api")
+        extra = {"request_id": request_id}
+        logger.info(f"Incoming Request: {request.method} {request.url.path}", extra=extra)
+        
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        
+        logger.info(f"Outgoing Response: {response.status_code}", extra=extra)
+        return response
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -22,6 +55,9 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     lifespan=lifespan
 )
+
+# Add Middleware
+app.add_middleware(RequestIDMiddleware)
 
 # Set up CORS
 app.add_middleware(

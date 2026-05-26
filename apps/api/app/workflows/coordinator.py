@@ -67,6 +67,16 @@ async def agent_execute(state: CoordinatorState):
     tool_calls = []
     messages = list(state.get("messages", []))
     
+    # Budgeting Hard Stop
+    async with AsyncSessionLocal() as db:
+        from apps.api.app.db.models.billing import CreditBalance
+        from langgraph.errors import NodeInterrupt
+        balance = await db.scalar(
+            select(CreditBalance.balance).where(CreditBalance.workspace_id == uuid.UUID(state["workspace_id"]))
+        )
+        if balance is not None and balance <= 0:
+            raise NodeInterrupt(f"BudgetExceededError: Workspace {state['workspace_id']} has exhausted all credits.")
+            
     # Check if we should run real LLM or mock
     if settings.OPENAI_API_KEY:
         schemas = ToolRegistry.get_all_schemas()

@@ -49,4 +49,5 @@ class StripeEvent(Base, TimestampMixin):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     stripe_event_id = Column(String, unique=True, index=True, nullable=False)
     event_type = Column(String, nullable=False)
+    amount_total = Column(Integer, default=0, nullable=False)
     status = Column(String(50), default="processed", nullable=False)
