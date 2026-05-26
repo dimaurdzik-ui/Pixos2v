@@ -105,7 +105,7 @@ async def get_current_workspace(
         workspace = result_ws.scalar_one_or_none()
         
         if not workspace:
-            raise HTTPException(status_code=404, detail="Workspace not found")
+            print("WORKSPACE HEADER NOT FOUND!"); raise HTTPException(status_code=404, detail="Workspace not found")
             
         return workspace
     
@@ -120,7 +120,7 @@ async def get_current_workspace(
     workspace = result.scalar_one_or_none()
     
     if not workspace:
-        raise HTTPException(status_code=404, detail="No workspace found for this user")
+        print(f"NO DEFAULT WORKSPACE FOR USER {current_user.id}"); raise HTTPException(status_code=404, detail="No workspace found for this user")
     
     return workspace
 

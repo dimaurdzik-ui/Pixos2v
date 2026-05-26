@@ -2,6 +2,7 @@ import uuid
 import asyncio
 import json
 from typing import TypedDict, Any, Optional
+from sqlalchemy import select
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
@@ -85,7 +86,6 @@ async def agent_execute(state: CoordinatorState):
         # Fetch active agents in the workspace to allow delegation
         async with AsyncSessionLocal() as db:
             from apps.api.app.db.models.agents import Agent
-            from sqlalchemy import select
             
             result = await db.execute(
                 select(Agent).where(
