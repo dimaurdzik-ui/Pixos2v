@@ -16,11 +16,11 @@ export default function TasksPage() {
     
     setIsSubmitting(true);
     try {
-      const res = await api.createTask(prompt);
-      setTasks([{ id: res.task_id, desc: prompt, status: "Running" }, ...tasks]);
+      const res = await api.post('/api/v1/tasks', { prompt });
+      setTasks([{ id: res.data.task_id, desc: prompt, status: "Running" }, ...tasks]);
       setPrompt("");
       // Trigger run
-      await api.runWorkflow(res.task_id);
+      await api.post(`/api/v1/tasks/${res.data.task_id}/run`);
     } catch (err) {
       console.error(err);
     } finally {
