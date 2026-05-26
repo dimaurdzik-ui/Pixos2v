@@ -2,9 +2,28 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Play } from "lucide-react";
+import { Play, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { getWorkflows } from "@/lib/api";
 
 export default function WorkflowsPage() {
+  const [workflows, setWorkflows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchWorkflows();
+  }, []);
+
+  const fetchWorkflows = async () => {
+    try {
+      const data = await getWorkflows();
+      setWorkflows(data);
+    } catch (error) {
+      console.error("Failed to fetch workflows", error);
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
@@ -24,32 +43,37 @@ export default function WorkflowsPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Mock Table Row */}
-            <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
-              <div className="flex flex-col gap-1">
-                <span className="font-medium">Research Competitors</span>
-                <span className="text-sm text-muted-foreground">Assigned to: System Coordinator</span>
+            {loading ? (
+              <div className="flex justify-center p-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-              <div className="flex items-center gap-4">
-                <span className="px-3 py-1 bg-blue-500/10 text-blue-500 rounded-full text-xs font-medium border border-blue-500/20">
-                  Running
-                </span>
-                <span className="text-sm text-muted-foreground">10m ago</span>
+            ) : workflows.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No workflows found. Start a task in the Virtual Office.
               </div>
-            </div>
-            
-            <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
-              <div className="flex flex-col gap-1">
-                <span className="font-medium">Generate Monthly Report</span>
-                <span className="text-sm text-muted-foreground">Assigned to: System Coordinator</span>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="px-3 py-1 bg-green-500/10 text-green-500 rounded-full text-xs font-medium border border-green-500/20">
-                  Completed
-                </span>
-                <span className="text-sm text-muted-foreground">Yesterday</span>
-              </div>
-            </div>
+            ) : (
+              workflows.map((run) => (
+                <div key={run.id} className="flex items-center justify-between p-4 border rounded-lg bg-card">
+                  <div className="flex flex-col gap-1">
+                    <span className="font-medium">{run.description || "Untitled Task"}</span>
+                    <span className="text-sm text-muted-foreground font-mono text-xs">Run ID: {run.id.slice(0,8)}</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium border capitalize
+                      ${run.status === 'completed' ? 'bg-green-500/10 text-green-500 border-green-500/20' : 
+                        run.status === 'failed' ? 'bg-red-500/10 text-red-500 border-red-500/20' : 
+                        run.status === 'paused_for_approval' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
+                        'bg-blue-500/10 text-blue-500 border-blue-500/20'}
+                    `}>
+                      {run.status.replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      {run.created_at ? new Date(run.created_at).toLocaleDateString() : 'N/A'}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>

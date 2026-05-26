@@ -50,8 +50,13 @@ export const createWorkflowTask = async (description: string) => {
   return response.data;
 };
 
+export const getWorkflows = async () => {
+  const response = await api.get('/api/v1/workflows');
+  return response.data;
+};
+
 export const getWorkflowStatus = async (runId: string) => {
-  const response = await api.get(`/api/v1/workflows/workflows/${runId}`);
+  const response = await api.get(`/api/v1/workflows/${runId}`);
   return response.data;
 };
 
@@ -88,13 +93,18 @@ export const getAgents = async () => {
   return response.data;
 };
 
-export const createAgent = async (data: { name: string; description?: string; system_prompt?: string; model_name?: string }) => {
+export const createAgent = async (data: { name: string; role: string; description?: string; system_prompt?: string; model_name?: string }) => {
   const response = await api.post('/api/v1/agents', data);
   return response.data;
 };
 
 export const deleteAgent = async (agentId: string) => {
   const response = await api.delete(`/api/v1/agents/${agentId}`);
+  return response.data;
+};
+
+export const sendAgentChat = async (agentId: string, message: string) => {
+  const response = await api.post(`/api/v1/agents/${agentId}/chat`, { message });
   return response.data;
 };
 

@@ -3,55 +3,68 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Activity, User, Briefcase, FileText, Cpu, Loader2 } from "lucide-react";
-import { useState, useEffect } from "react";
-import { createWorkflowTask, getWorkflowStatus } from "@/lib/api";
+import { Send, Activity, User, Briefcase, FileText, Cpu, Loader2, Bot } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { getAgents, getWorkflows, getPendingApprovals, sendAgentChat } from "@/lib/api";
+
+type Message = { id: string, role: "user" | "assistant", content: string };
 
 export default function OfficePage() {
   const [taskInput, setTaskInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeRuns, setActiveRuns] = useState<{id: string, description: string, status: string}[]>([]);
   
-  // Basic polling effect
+  const [metrics, setMetrics] = useState({ agents: 0, workflows: 0, approvals: 0 });
+  const [messages, setMessages] = useState<Message[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [coordinatorId, setCoordinatorId] = useState<string | null>(null);
+  
   useEffect(() => {
-    const pollInterval = setInterval(async () => {
-      const runningRuns = activeRuns.filter(r => r.status === "queued" || r.status === "running");
+    fetchMetrics();
+  }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const fetchMetrics = async () => {
+    try {
+      const [agentsData, workflowsData, approvalsData] = await Promise.all([
+        getAgents(),
+        getWorkflows(),
+        getPendingApprovals()
+      ]);
+      setMetrics({
+        agents: agentsData.length,
+        workflows: workflowsData.length,
+        approvals: approvalsData.length
+      });
       
-      if (runningRuns.length > 0) {
-        try {
-          const updatedRuns = await Promise.all(
-            activeRuns.map(async (run) => {
-              if (run.status === "queued" || run.status === "running") {
-                const statusData = await getWorkflowStatus(run.id);
-                return { ...run, status: statusData.status };
-              }
-              return run;
-            })
-          );
-          setActiveRuns(updatedRuns);
-        } catch (error) {
-          console.error("Polling error", error);
-        }
+      const coordinator = agentsData.find((a: any) => a.is_coordinator);
+      if (coordinator) {
+        setCoordinatorId(coordinator.id);
       }
-    }, 3000);
-    
-    return () => clearInterval(pollInterval);
-  }, [activeRuns]);
+    } catch (error) {
+      console.error("Failed to fetch metrics", error);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!taskInput.trim()) return;
+    if (!taskInput.trim() || !coordinatorId) return;
     
+    const userMessage: Message = { id: Date.now().toString(), role: "user", content: taskInput };
+    setMessages(prev => [...prev, userMessage]);
+    setTaskInput("");
     setIsSubmitting(true);
+    
     try {
-      const data = await createWorkflowTask(taskInput);
-      setActiveRuns(prev => [
-        { id: data.workflow_run_id, description: taskInput, status: data.status },
-        ...prev
-      ]);
-      setTaskInput("");
+      const data = await sendAgentChat(coordinatorId, userMessage.content);
+      const assistantMessage: Message = { id: (Date.now() + 1).toString(), role: "assistant", content: data.message };
+      setMessages(prev => [...prev, assistantMessage]);
+      fetchMetrics(); // Refresh workflows/approvals just in case
     } catch (error) {
-      console.error("Failed to create task", error);
+      console.error("Failed to send chat", error);
     } finally {
       setIsSubmitting(false);
     }
@@ -90,18 +103,18 @@ export default function OfficePage() {
             <User className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">4</div>
-            <p className="text-xs text-muted-foreground">All systems operational</p>
+            <div className="text-2xl font-bold">{metrics.agents}</div>
+            <p className="text-xs text-muted-foreground">Registered in your workspace</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Running Workflows</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Workflows</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">2</div>
-            <p className="text-xs text-muted-foreground">+1 completed today</p>
+            <div className="text-2xl font-bold">{metrics.workflows}</div>
+            <p className="text-xs text-muted-foreground">Lifetime tasks started</p>
           </CardContent>
         </Card>
         <Card>
@@ -110,7 +123,7 @@ export default function OfficePage() {
             <Briefcase className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-500">1</div>
+            <div className="text-2xl font-bold text-amber-500">{metrics.approvals}</div>
             <p className="text-xs text-muted-foreground">Requires your attention</p>
           </CardContent>
         </Card>
@@ -129,23 +142,37 @@ export default function OfficePage() {
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="col-span-1">
           <CardHeader>
-            <CardTitle>Activity Feed</CardTitle>
-            <CardDescription>Recent actions from your AI team.</CardDescription>
+            <CardTitle>Chat with Coordinator</CardTitle>
+            <CardDescription>Direct line to your System Coordinator.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {activeRuns.map((run) => (
-                <div key={run.id} className="flex items-center gap-4 text-sm border-b border-border/50 pb-4">
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${run.status === 'completed' ? 'bg-green-500' : run.status === 'failed' ? 'bg-red-500' : run.status === 'paused_for_approval' ? 'bg-amber-500' : 'bg-blue-500'}`}></div>
-                  <div className="flex-1 font-medium text-foreground">
-                    Workflow <span className="font-mono text-xs text-muted-foreground">{run.id.slice(0, 8)}</span>: {run.description}
+            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 pb-4">
+              {messages.map((msg) => (
+                <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                  <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-primary/20' : 'bg-primary/10 border border-primary/30'}`}>
+                    {msg.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4 text-primary" />}
                   </div>
-                  <div className="text-muted-foreground capitalize">{run.status.replace(/_/g, ' ')}</div>
+                  <div className={`text-sm py-2 px-3 rounded-xl max-w-[80%] ${msg.role === 'user' ? 'bg-primary/10 text-right' : 'bg-card border border-border'}`}>
+                    {msg.content}
+                  </div>
                 </div>
               ))}
-              {activeRuns.length === 0 && (
-                <div className="text-sm text-muted-foreground italic">No recent activity. Start a workflow above.</div>
+              {isSubmitting && (
+                <div className="flex gap-3">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0">
+                    <Bot className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="text-sm py-2 px-3 rounded-xl bg-card border border-border flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce"></span>
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                  </div>
+                </div>
               )}
+              {messages.length === 0 && (
+                <div className="text-sm text-muted-foreground italic text-center py-8">No messages yet. Send a request above!</div>
+              )}
+              <div ref={messagesEndRef} />
             </div>
           </CardContent>
         </Card>

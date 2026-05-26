@@ -114,7 +114,33 @@ async def create_task(
     
     return {"task_id": str(new_task.id), "workflow_run_id": str(run.id), "status": run.status}
 
-@router.get("/workflows/{run_id}")
+@router.get("")
+async def get_workflows(
+    workspace: Workspace = Depends(get_current_workspace),
+    db: AsyncSession = Depends(get_db)
+):
+    # Fetch runs and their corresponding tasks
+    result = await db.execute(
+        select(WorkflowRun, DBTask)
+        .join(DBTask, WorkflowRun.task_id == DBTask.id)
+        .where(WorkflowRun.workspace_id == workspace.id)
+        .order_by(WorkflowRun.created_at.desc())
+        .limit(20)
+    )
+    runs = result.all()
+    
+    return [
+        {
+            "id": str(run.WorkflowRun.id),
+            "task_id": str(run.WorkflowRun.task_id),
+            "description": run.Task.description,
+            "status": run.WorkflowRun.status,
+            "created_at": run.WorkflowRun.created_at.isoformat() if run.WorkflowRun.created_at else None
+        }
+        for run in runs
+    ]
+
+@router.get("/{run_id}")
 async def get_workflow_status(
     run_id: str,
     workspace: Workspace = Depends(get_current_workspace),

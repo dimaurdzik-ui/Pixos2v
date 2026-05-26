@@ -12,7 +12,7 @@ export default function AgentsPage() {
   const [agents, setAgents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [newAgent, setNewAgent] = useState({ name: "", description: "", system_prompt: "" });
+  const [newAgent, setNewAgent] = useState({ name: "", role: "assistant", description: "", system_prompt: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export default function AgentsPage() {
       await createAgent(newAgent);
       await fetchAgents();
       setShowModal(false);
-      setNewAgent({ name: "", description: "", system_prompt: "" });
+      setNewAgent({ name: "", role: "assistant", description: "", system_prompt: "" });
       toast.success("Agent created successfully!");
     } catch (error) {
       console.error("Failed to create agent", error);
@@ -134,6 +134,10 @@ export default function AgentsPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Name</label>
                   <Input required value={newAgent.name} onChange={e => setNewAgent({...newAgent, name: e.target.value})} placeholder="e.g. Marketing Specialist" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Role</label>
+                  <Input required value={newAgent.role} onChange={e => setNewAgent({...newAgent, role: e.target.value})} placeholder="e.g. Social Media Manager" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Description</label>
