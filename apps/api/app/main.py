@@ -12,13 +12,15 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - [req_id=%(request_id)s] - %(message)s'
 )
-# Provide default request_id for logs outside request context
-old_factory = logging.getLogRecordFactory()
-def record_factory(*args, **kwargs):
-    record = old_factory(*args, **kwargs)
-    record.request_id = getattr(record, 'request_id', 'N/A')
-    return record
-logging.setLogRecordFactory(record_factory)
+
+class RequestIDFilter(logging.Filter):
+    def filter(self, record):
+        if not hasattr(record, 'request_id'):
+            record.request_id = 'N/A'
+        return True
+
+for handler in logging.root.handlers:
+    handler.addFilter(RequestIDFilter())
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
