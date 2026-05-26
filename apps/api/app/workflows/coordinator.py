@@ -107,6 +107,33 @@ async def agent_execute(state: CoordinatorState):
                 }
                 schemas.append(agent_tool)
         
+        # 2. PLAN CREATION TOOL
+        schemas.append({
+            "type": "function",
+            "function": {
+                "name": "coordinator.create_plan",
+                "description": "Create a multi-step plan to solve the user's request. Always do this first for complex requests.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "goal": {"type": "string", "description": "Overall objective"},
+                        "tasks": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "description": {"type": "string", "description": "Task description"},
+                                    "assigned_agent_id": {"type": "string", "description": "UUID of the agent to assign. Use null if unassigned."}
+                                },
+                                "required": ["description"]
+                            }
+                        }
+                    },
+                    "required": ["goal", "tasks"]
+                }
+            }
+        })
+        
         try:
             response = await litellm.acompletion(
                 model="gpt-4o",
@@ -201,11 +228,42 @@ async def execute_tools(state: CoordinatorState):
         
         try:
             # 2. SUB-AGENT EXECUTION
-            if tool.startswith("delegate_to_agent_"):
+            if tool == "coordinator.create_plan":
+                goal = tc.get("payload", {}).get("goal")
+                tasks = tc.get("payload", {}).get("tasks", [])
+                
+                async with AsyncSessionLocal() as db:
+                    from apps.api.app.db.models.agents import AgentPlan, AgentTask
+                    
+                    plan = AgentPlan(
+                        workflow_run_id=uuid.UUID(state["workflow_run_id"]),
+                        workspace_id=uuid.UUID(state["workspace_id"]),
+                        goal=goal
+                    )
+                    db.add(plan)
+                    await db.flush()
+                    
+                    for i, t in enumerate(tasks):
+                        agent_id = t.get("assigned_agent_id")
+                        if agent_id == "null" or not agent_id:
+                            agent_id = None
+                            
+                        agent_task = AgentTask(
+                            plan_id=plan.id,
+                            description=t.get("description"),
+                            step_order=i,
+                            assigned_agent_id=uuid.UUID(agent_id) if agent_id else None
+                        )
+                        db.add(agent_task)
+                    
+                    await db.commit()
+                    tool_result = f"Plan created successfully. Plan ID: {plan.id}"
+                    
+            elif tool.startswith("delegate_to_agent_"):
                 agent_id_str = tool.replace("delegate_to_agent_", "")
                 
                 async with AsyncSessionLocal() as db:
-                    from apps.api.app.db.models.agents import Agent
+                    from apps.api.app.db.models.agents import Agent, TeamMemory
                     agent = await db.get(Agent, uuid.UUID(agent_id_str))
                     
                     if not agent:
@@ -224,6 +282,16 @@ async def execute_tools(state: CoordinatorState):
                             
                         # Execute Sub-Agent
                         tool_result = await execute_sub_agent(agent, tc.get("payload", {}).get("task", ""), messages, state)
+                        
+                        # Save sub-agent result to TeamMemory
+                        memory = TeamMemory(
+                            workspace_id=uuid.UUID(state["workspace_id"]),
+                            workflow_run_id=uuid.UUID(state["workflow_run_id"]),
+                            key=f"agent_{agent.id}_last_result",
+                            value={"task": tc.get("payload", {}).get("task"), "result": str(tool_result)}
+                        )
+                        db.add(memory)
+                        await db.commit()
             else:
                 # Delegate execution to the ToolGateway
                 tool_result = await ToolGateway.execute(tool, tc.get("payload", {}), context)
