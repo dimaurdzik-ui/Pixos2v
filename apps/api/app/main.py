@@ -1,7 +1,6 @@
 import logging
 import uuid
 from fastapi import FastAPI, Request
-from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from apps.api.app.core.config import settings
@@ -22,22 +21,34 @@ class RequestIDFilter(logging.Filter):
 for handler in logging.root.handlers:
     handler.addFilter(RequestIDFilter())
 
-class RequestIDMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-        # Set request_id in context or attach to request
-        request.state.request_id = request_id
-        
-        # Log request start
-        logger = logging.getLogger("api")
-        extra = {"request_id": request_id}
-        logger.info(f"Incoming Request: {request.method} {request.url.path}", extra=extra)
-        
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        
-        logger.info(f"Outgoing Response: {response.status_code}", extra=extra)
-        return response
+# Pure ASGI middleware (avoids BaseHTTPMiddleware/asyncpg event-loop conflicts)
+class RequestIDMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            request_id = headers.get(b"x-request-id", str(uuid.uuid4()).encode()).decode()
+            scope["state"] = scope.get("state", {})
+            scope["state"]["request_id"] = request_id
+
+            logger = logging.getLogger("api")
+            extra = {"request_id": request_id}
+            logger.info(f"Incoming Request: {scope.get('method', '?')} {scope.get('path', '?')}", extra=extra)
+
+            async def send_with_header(message):
+                if message["type"] == "http.response.start":
+                    headers_list = list(message.get("headers", []))
+                    headers_list.append((b"x-request-id", request_id.encode()))
+                    message = {**message, "headers": headers_list}
+                    logger.info(f"Outgoing Response: {message.get('status', '?')}", extra=extra)
+                await send(message)
+
+            await self.app(scope, receive, send_with_header)
+        else:
+            await self.app(scope, receive, send)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

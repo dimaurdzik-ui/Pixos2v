@@ -3,7 +3,7 @@ from apps.api.app.core.config import settings
 from .registry import ToolRegistry
 from apps.api.app.db.database import AsyncSessionLocal
 from apps.api.app.db.models.integrations import IntegrationConnection
-from apps.api.app.db.models.policy import ToolPolicy, ToolExecution, PolicyDecision, PendingApproval
+from apps.api.app.db.models.policy import ToolPolicy, ToolExecution, PolicyDecision, PendingApproval, DestinationAllowlist
 from apps.api.app.db.models.workflow import WorkflowRun, WorkflowStep, WorkflowEvent
 from apps.api.app.core.security import decrypt_token
 from apps.api.app.core.statuses import ApprovalStatus
@@ -11,6 +11,21 @@ from sqlalchemy import select
 from datetime import datetime, timezone
 from langgraph.errors import NodeInterrupt
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Maps tool name → payload key that holds the destination value
+DESTINATION_FIELD_MAP: Dict[str, str] = {
+    "gmail.send": "to",
+    "gmail.send_email": "to",
+    "slack.send_message": "channel",
+    "slack.post": "channel",
+    "github.create_issue": "repo",
+    "github.push": "repo",
+    "notion.create_page": "page_id",
+    "telegram.send_message": "chat_id",
+}
 
 class ToolGateway:
     @staticmethod
@@ -109,6 +124,37 @@ class ToolGateway:
                 
                 if connection.encrypted_token:
                     context["access_token"] = decrypt_token(connection.encrypted_token)
+            
+            # 3b. Destination Allowlist Check
+            dest_field = DESTINATION_FIELD_MAP.get(tool_name)
+            if dest_field and not settings.MOCK_TOOLS:
+                destination = payload.get(dest_field)
+                if destination:
+                    result_allowlist = await db.execute(
+                        select(DestinationAllowlist).where(
+                            DestinationAllowlist.workspace_id == workspace_id,
+                            DestinationAllowlist.provider == provider,
+                            DestinationAllowlist.is_active == True
+                        )
+                    )
+                    allowlist = result_allowlist.scalars().all()
+                    
+                    if allowlist:
+                        # Allowlist exists — check if destination matches any entry
+                        allowed_values = [entry.value for entry in allowlist]
+                        is_allowed = any(
+                            destination == v or destination.endswith(f"@{v}") or destination.startswith(f"#{v}")
+                            for v in allowed_values
+                        )
+                        if not is_allowed:
+                            execution.status = "failed"
+                            execution.error_message = f"DESTINATION_NOT_ALLOWED: {destination}"
+                            decision.decision = "deny"
+                            decision.reason = f"Destination '{destination}' not in workspace allowlist for {provider}"
+                            logger.warning(f"ToolGateway BLOCKED: tool={tool_name} destination={destination} workspace={workspace_id}")
+                            await db.commit()
+                            return {"error": f"DESTINATION_NOT_ALLOWED: '{destination}' is not in the workspace allowlist for {provider}"}
+
 
             # 4. Handle Approvals
             if decision.decision == "require_approval":

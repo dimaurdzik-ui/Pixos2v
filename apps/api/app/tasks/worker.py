@@ -110,7 +110,6 @@ def run_coordinator_task(self, initial_state: dict):
                                 chat_msg = Message(
                                     conversation_id=uuid.UUID(conversation_id),
                                     sender_type="agent",
-                                    sender_id=run.agent_id or run.created_by, # Or the agent that actually answered
                                     content=last_msg
                                 )
                                 db.add(chat_msg)

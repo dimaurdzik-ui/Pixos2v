@@ -24,7 +24,7 @@ class PendingApproval(Base, TimestampMixin):
     workflow_run_id = Column(UUID(as_uuid=True), ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False)
     tool_call_id = Column(String, nullable=False)
     tool_execution_id = Column(UUID(as_uuid=True), ForeignKey("tool_executions.id", ondelete="CASCADE"), nullable=True)
-    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=True)
     requested_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     risk_level = Column(String, nullable=False)
     action_type = Column(String, nullable=False)

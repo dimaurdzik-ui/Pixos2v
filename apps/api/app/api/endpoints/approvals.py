@@ -1,7 +1,8 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from apps.api.app.db.database import get_db
 from apps.api.app.db.models.policy import PendingApproval
@@ -33,16 +34,31 @@ async def approve_tool(
     db: AsyncSession = Depends(get_db),
     _ = Depends(require_permission("approve_actions"))
 ):
-    approval = await db.get(PendingApproval, uuid.UUID(approval_id))
-    if not approval or approval.workspace_id != workspace.id:
-        raise HTTPException(status_code=404, detail="Approval not found")
-        
-    if approval.status != ApprovalStatus.pending:
-        return {"status": approval.status, "message": "Approval already processed or executing"}
-        
-    # Idempotency / Execution Status
-    approval.status = ApprovalStatus.executing
-    await db.commit() # lock the state
+    # --- ATOMIC LOCK: only one concurrent approve wins ---
+    # UPDATE ... WHERE status='pending' is atomic in PostgreSQL; only first request succeeds
+    stmt = (
+        update(PendingApproval)
+        .where(
+            PendingApproval.id == uuid.UUID(approval_id),
+            PendingApproval.workspace_id == workspace.id,
+            PendingApproval.status == ApprovalStatus.pending   # guard prevents double-approve
+        )
+        .values(status=ApprovalStatus.executing)
+        .returning(PendingApproval)
+    )
+    result = await db.execute(stmt)
+    approval = result.scalar_one_or_none()
+    
+    if not approval:
+        # Either not found, wrong workspace, or already processed
+        existing = await db.get(PendingApproval, uuid.UUID(approval_id))
+        if not existing or existing.workspace_id != workspace.id:
+            raise HTTPException(status_code=404, detail="Approval not found")
+        return {"status": existing.status.value, "message": "Approval already processed or executing"}
+    
+    await db.commit()
+    await db.refresh(approval)
+
     
     # Audit Log
     audit = AuditLog(

@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, text
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 from apps.api.app.db.database import get_db
 from apps.api.app.db.models.core import User, Workspace, AuditLog, WorkspaceMember
@@ -132,9 +135,45 @@ async def get_overview(
     
     # Simple Ping Checks
     database_status = "healthy"
-    redis_status = "healthy" # Assume healthy for MVP, or ping Redis
-    celery_status = "healthy" # Assume healthy for MVP, or check worker
-    provider_health = "healthy" # Check OpenAI/Anthropic status
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error(f"DB health check failed: {e}")
+        database_status = "degraded"
+    
+    redis_status = "healthy"
+    try:
+        from apps.api.app.core.celery_app import celery_app
+        redis_client = celery_app.backend.client if hasattr(celery_app, 'backend') and hasattr(celery_app.backend, 'client') else None
+        if redis_client:
+            redis_client.ping()
+        else:
+            import redis
+            from apps.api.app.core.config import settings
+            r = redis.from_url(settings.REDIS_URL)
+            r.ping()
+    except Exception as e:
+        logger.warning(f"Redis health check failed: {e}")
+        redis_status = "degraded"
+    
+    celery_status = "healthy"
+    try:
+        from apps.api.app.core.celery_app import celery_app
+        i = celery_app.control.inspect(timeout=1.0)
+        active = i.active()
+        if active is None:
+            celery_status = "no_workers"
+    except Exception as e:
+        logger.warning(f"Celery health check failed: {e}")
+        celery_status = "degraded"
+    
+    provider_health = "healthy"
+    try:
+        from apps.api.app.core.config import settings
+        if not settings.OPENAI_API_KEY:
+            provider_health = "unconfigured"
+    except Exception:
+        provider_health = "unconfigured"
     
     return AdminOverview(
         total_workspaces=workspaces_count or 0,
@@ -316,15 +355,52 @@ async def list_all_workflows(
         ) for w in wfs
     ]
 
-# --- PROVIDER HEALTH ---
+# --- PROVIDER HEALTH (Detailed) ---
 @router.get("/provider-health")
 async def get_provider_health(
     db: AsyncSession = Depends(get_db),
     _ = Depends(require_super_admin)
 ):
-    # Dummy implementation for now, should ping services
-    return {
-        "postgres": "healthy",
-        "redis": "healthy",
-        "celery": "healthy"
-    }
+    results = {}
+    
+    # 1. Postgres
+    try:
+        await db.execute(text("SELECT 1"))
+        results["postgres"] = "healthy"
+    except Exception as e:
+        results["postgres"] = f"degraded: {str(e)[:80]}"
+    
+    # 2. Redis
+    try:
+        import redis as redis_lib
+        from apps.api.app.core.config import settings
+        r = redis_lib.from_url(settings.REDIS_URL, socket_connect_timeout=2)
+        r.ping()
+        results["redis"] = "healthy"
+    except Exception as e:
+        results["redis"] = f"degraded: {str(e)[:80]}"
+    
+    # 3. Celery
+    try:
+        from apps.api.app.core.celery_app import celery_app
+        i = celery_app.control.inspect(timeout=2.0)
+        active = i.active()
+        results["celery"] = "healthy" if active is not None else "no_workers"
+    except Exception as e:
+        results["celery"] = f"degraded: {str(e)[:80]}"
+    
+    # 4. OpenAI API key configured
+    try:
+        from apps.api.app.core.config import settings
+        results["openai"] = "configured" if settings.OPENAI_API_KEY else "not_configured"
+    except Exception:
+        results["openai"] = "not_configured"
+    
+    # 5. Stripe
+    try:
+        from apps.api.app.core.config import settings
+        results["stripe"] = "configured" if settings.STRIPE_SECRET_KEY else "not_configured"
+    except Exception:
+        results["stripe"] = "not_configured"
+    
+    return results
