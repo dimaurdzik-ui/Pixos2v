@@ -10,6 +10,7 @@ from apps.api.app.db.models.billing import CreditBalance
 from apps.api.app.db.models.core import Workspace, User
 from apps.api.app.db.models.agents import Agent
 from apps.api.app.db.models.workflow import Task as DBTask, WorkflowRun, WorkflowStep, WorkflowEvent
+from apps.api.app.core.statuses import TaskStatus, WorkflowRunStatus, WorkflowSource
 from apps.api.app.api.deps import get_current_workspace, get_current_user, require_permission
 from apps.api.app.tasks.worker import run_coordinator_task
 
@@ -52,7 +53,9 @@ async def create_task(
     run = WorkflowRun(
         workspace_id=workspace.id,
         task_id=new_task.id,
-        status="queued"
+        status=WorkflowRunStatus.queued,
+        source=WorkflowSource.api,
+        created_by=current_user.id
     )
     db.add(run)
     await db.commit()

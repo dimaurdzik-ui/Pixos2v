@@ -11,6 +11,7 @@ from apps.api.app.db.models.core import Workspace, User
 from apps.api.app.db.models.chat import Conversation, Message
 from apps.api.app.db.models.workflow import Task, WorkflowRun
 from apps.api.app.api.deps import get_current_workspace, get_current_user, require_permission
+from apps.api.app.core.statuses import TaskStatus, WorkflowRunStatus, WorkflowSource
 
 router = APIRouter()
 
@@ -192,7 +193,7 @@ async def create_agent_task(
         workspace_id=workspace.id,
         created_by=current_user.id,
         description=task_in.description,
-        status="pending"
+        status=TaskStatus.pending
     )
     db.add(task)
     await db.flush()
@@ -200,7 +201,9 @@ async def create_agent_task(
     run = WorkflowRun(
         workspace_id=workspace.id,
         task_id=task.id,
-        status="started"
+        status=WorkflowRunStatus.queued,
+        source=WorkflowSource.api,
+        created_by=current_user.id
     )
     db.add(run)
     await db.commit()
@@ -286,7 +289,7 @@ async def create_agent_chat(
         workspace_id=workspace.id,
         created_by=current_user.id,
         description=f"Chat interaction: {chat_in.message[:50]}...",
-        status="running"
+        status=TaskStatus.running
     )
     db.add(chat_task)
     await db.flush()
@@ -294,7 +297,10 @@ async def create_agent_chat(
     chat_run = WorkflowRun(
         workspace_id=workspace.id,
         task_id=chat_task.id,
-        status="started"
+        conversation_id=conv.id,
+        status=WorkflowRunStatus.running,
+        source=WorkflowSource.chat,
+        created_by=current_user.id
     )
     db.add(chat_run)
     await db.commit()

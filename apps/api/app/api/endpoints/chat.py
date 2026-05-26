@@ -9,8 +9,9 @@ from apps.api.app.db.database import get_db
 from apps.api.app.db.models.core import User, Workspace
 from apps.api.app.db.models.chat import Conversation, Message, MessageAttachment
 from apps.api.app.api.deps import get_current_workspace, get_current_user
-from apps.api.app.db.models.workflow import WorkflowRun
+from apps.api.app.db.models.workflow import WorkflowRun, Task
 from apps.api.app.tasks.worker import run_coordinator_task
+from apps.api.app.core.statuses import TaskStatus, WorkflowRunStatus, WorkflowSource
 
 router = APIRouter()
 
@@ -106,11 +107,23 @@ async def send_message(
     db.add(user_msg)
     await db.flush()
     
+    # Create Task
+    task = Task(
+        workspace_id=workspace.id,
+        created_by=current_user.id,
+        description=req.content,
+        status=TaskStatus.pending
+    )
+    db.add(task)
+    await db.flush()
+    
     # Initialize Workflow
     run = WorkflowRun(
         workspace_id=workspace.id,
-        name=f"Chat Workflow: {req.content[:20]}...",
-        status="pending",
+        task_id=task.id,
+        conversation_id=convo.id,
+        source=WorkflowSource.chat,
+        status=WorkflowRunStatus.queued,
         created_by=current_user.id
     )
     db.add(run)
