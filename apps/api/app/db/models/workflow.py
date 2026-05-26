@@ -16,7 +16,7 @@ class WorkflowRun(Base, TimestampMixin):
     __tablename__ = "workflow_runs"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
-    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True)
     status = Column(Enum(WorkflowRunStatus), nullable=False, default=WorkflowRunStatus.queued)
     source = Column(Enum(WorkflowSource), nullable=False, default=WorkflowSource.api)
     conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True)
