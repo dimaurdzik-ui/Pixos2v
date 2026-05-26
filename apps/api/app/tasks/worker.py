@@ -21,6 +21,7 @@ def run_coordinator_task(initial_state: dict):
             from apps.api.app.db.database import AsyncSessionLocal
             from apps.api.app.db.models.billing import CreditBalance, UsageRecord
             from apps.api.app.db.models.workflow import WorkflowRun
+            from apps.api.app.db.models.chat import Message
             from sqlalchemy import select
             
             run_id = initial_state.get("workflow_run_id")
@@ -56,6 +57,21 @@ def run_coordinator_task(initial_state: dict):
                                 cost=calculated_cost
                             )
                             db.add(usage)
+                        
+                        # Save final assistant reply to chat if it was a chat workflow
+                        conversation_id = initial_state.get("conversation_id") if initial_state else final_state.get("conversation_id")
+                        if conversation_id and final_state.get("messages"):
+                            # Get the last assistant message
+                            assistant_msgs = [m for m in final_state["messages"] if m.get("role") == "assistant" and m.get("content")]
+                            if assistant_msgs:
+                                last_msg = assistant_msgs[-1]["content"]
+                                chat_msg = Message(
+                                    conversation_id=uuid.UUID(conversation_id),
+                                    sender_type="agent",
+                                    sender_id=run.agent_id or run.created_by, # Or the agent that actually answered
+                                    content=last_msg
+                                )
+                                db.add(chat_msg)
                         
                     await db.commit()
                     

@@ -17,4 +17,16 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     task_track_started=True,
+    # Enterprise settings
+    task_acks_late=True, # Idempotency: acknowledge task only after successful execution
+    task_reject_on_worker_lost=True, # Re-queue task if worker crashes
+    worker_prefetch_multiplier=1, # Fair dispatch
+    task_time_limit=3600, # 1 hour hard timeout
+    task_soft_time_limit=3300, # 55 min soft timeout
+    task_default_queue="celery_default",
 )
+
+# Route workflows to a dedicated queue
+celery_app.conf.task_routes = {
+    "tasks.worker.run_coordinator_task": {"queue": "celery_workflows"},
+}

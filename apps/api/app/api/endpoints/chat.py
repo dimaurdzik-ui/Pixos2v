@@ -9,8 +9,13 @@ from apps.api.app.db.database import get_db
 from apps.api.app.db.models.core import User, Workspace
 from apps.api.app.db.models.chat import Conversation, Message, MessageAttachment
 from apps.api.app.api.deps import get_current_workspace, get_current_user
+from apps.api.app.db.models.workflow import WorkflowRun
+from apps.api.app.tasks.worker import run_coordinator_task
 
 router = APIRouter()
+
+class SendMessageRequest(BaseModel):
+    content: str
 
 class ConversationResponse(BaseModel):
     id: str
@@ -76,3 +81,58 @@ async def get_messages(
             created_at=m.created_at.isoformat() if m.created_at else ""
         ) for m in messages
     ]
+
+@router.post("/conversations/{conversation_id}/messages", response_model=MessageResponse)
+async def send_message(
+    conversation_id: str,
+    req: SendMessageRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(select(Conversation).where(Conversation.id == uuid.UUID(conversation_id)))
+    convo = result.scalar_one_or_none()
+    
+    if not convo or convo.workspace_id != workspace.id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+        
+    # Save User Message
+    user_msg = Message(
+        conversation_id=convo.id,
+        sender_type="user",
+        sender_id=current_user.id,
+        content=req.content
+    )
+    db.add(user_msg)
+    await db.flush()
+    
+    # Initialize Workflow
+    run = WorkflowRun(
+        workspace_id=workspace.id,
+        name=f"Chat Workflow: {req.content[:20]}...",
+        status="pending",
+        created_by=current_user.id
+    )
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+    
+    # Send to Celery
+    initial_state = {
+        "workflow_run_id": str(run.id),
+        "workspace_id": str(workspace.id),
+        "user_id": str(current_user.id),
+        "user_request": req.content,
+        "current_agent_id": str(convo.agent_id) if convo.agent_id else None, # Route to the agent in the chat
+        "status": "running",
+        "conversation_id": str(convo.id)
+    }
+    
+    run_coordinator_task.delay(initial_state)
+    
+    return MessageResponse(
+        id=str(user_msg.id),
+        sender_type=user_msg.sender_type,
+        content=user_msg.content,
+        created_at=user_msg.created_at.isoformat() if user_msg.created_at else ""
+    )

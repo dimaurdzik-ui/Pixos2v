@@ -17,6 +17,7 @@ class CoordinatorState(TypedDict):
     task_id: str
     workspace_id: str
     user_id: str
+    conversation_id: Optional[str]
     coordinator_agent_id: str
     current_agent_id: str
     workflow_step_id: Optional[str]
@@ -250,6 +251,11 @@ def route_after_policy(state: CoordinatorState):
         return "END"
     return "execute_tools"
 
+def route_after_execute(state: CoordinatorState):
+    if state.get("tool_calls"): # If we dynamically added new tools during execution (sub-agents)
+        return "policy"
+    return "agent"
+
 async def execute_tools(state: CoordinatorState):
     """Executes the tools"""
     results = list(state.get("results", []))
@@ -320,7 +326,13 @@ async def execute_tools(state: CoordinatorState):
                 db.add(event)
             await db.commit()
             
-    return {"results": results, "messages": messages, "status": "running"}
+    # Check if we accumulated any nested tool calls from sub-agents
+    sub_agent_tools = state.get("sub_agent_tool_calls", [])
+    if sub_agent_tools:
+        # Clear them from sub_agent array and put them in the main tool_calls to go to policy
+        return {"results": results, "messages": messages, "tool_calls": sub_agent_tools, "sub_agent_tool_calls": [], "status": "running"}
+        
+    return {"results": results, "messages": messages, "tool_calls": [], "status": "running"}
 
 async def execute_sub_agent(agent, task: str, coordinator_history: list[dict], state: CoordinatorState) -> str:
     """Executes a sub-agent loop for delegation"""
@@ -368,22 +380,20 @@ async def execute_sub_agent(agent, task: str, coordinator_history: list[dict], s
         
         # If the sub-agent needs to call tools itself, we can execute them here
         if hasattr(message, "tool_calls") and message.tool_calls:
-            # MVP: Execute the tools synchronously and return the result
-            results_text = []
+            # INSTEAD OF EXECUTING SYNCHRONOUSLY, WE YIELD TO PARENT POLICY!
+            sub_tools = []
             for tc in message.tool_calls:
-                try:
-                    tool_name = tc.function.name
-                    payload = json.loads(tc.function.arguments)
-                    context = {
-                        "workspace_id": state.get("workspace_id"),
-                        "workflow_run_id": state.get("workflow_run_id")
-                    }
-                    tr = await ToolGateway.execute(tool_name, payload, context)
-                    results_text.append(f"Used {tool_name}: {tr}")
-                except Exception as ex:
-                    results_text.append(f"Tool {tool_name} failed: {ex}")
-                    
-            return f"Agent {agent.name} completed task. Actions taken:\n" + "\n".join(results_text)
+                tool_name = tc.function.name
+                payload = json.loads(tc.function.arguments)
+                sub_tools.append({
+                    "id": tc.id,
+                    "tool": tool_name,
+                    "payload": payload
+                })
+            
+            # Store them in the state so `execute_tools` can pick them up
+            state["sub_agent_tool_calls"] = state.get("sub_agent_tool_calls", []) + sub_tools
+            return f"Agent {agent.name} has queued tools for execution."
             
         return f"Agent {agent.name} says: {message.content}"
     except Exception as e:
@@ -398,6 +408,11 @@ builder.add_node("policy", check_policy)
 builder.add_node("execute", execute_tools)
 builder.add_node("pause", lambda s: {"status": "paused_for_approval"})
 
+def route_after_pause(state: CoordinatorState):
+    if state["status"] == "running":
+        return "execute"
+    return "END"
+
 builder.set_entry_point("start")
 builder.add_edge("start", "agent")
 builder.add_edge("agent", "policy")
@@ -406,8 +421,14 @@ builder.add_conditional_edges("policy", route_after_policy, {
     "execute_tools": "execute",
     "END": END
 })
-builder.add_edge("execute", "agent")
-builder.add_edge("pause", END)
+builder.add_conditional_edges("execute", route_after_execute, {
+    "policy": "policy",
+    "agent": "agent"
+})
+builder.add_conditional_edges("pause", route_after_pause, {
+    "execute": "execute",
+    "END": END
+})
 
 # Create a connection pool for the checkpointer
 DATABASE_URL = os.environ.get(

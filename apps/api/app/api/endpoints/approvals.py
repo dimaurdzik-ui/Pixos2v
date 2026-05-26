@@ -53,25 +53,11 @@ async def approve_tool(
     )
     db.add(audit)
     
-    # Execute the tool
-    from apps.api.app.services.tools.gateway import ToolGateway
-    
-    try:
-        context = {
-            "workspace_id": str(approval.workspace_id),
-            "workflow_run_id": str(approval.workflow_run_id) if approval.workflow_run_id else None
-        }
-        tool_result = await ToolGateway.execute(approval.action_type, approval.payload_preview or {}, context)
-        approval.status = "executed"
-    except Exception as e:
-        tool_result = f"Error executing tool: {str(e)}"
-        approval.status = "failed"
-        
     # Log event
     event = WorkflowEvent(
         workflow_run_id=approval.workflow_run_id,
-        event_type="tool_approved_and_executed",
-        payload={"tool": approval.action_type, "result": tool_result}
+        event_type="tool_approved",
+        payload={"tool": approval.action_type}
     )
     db.add(event)
     
@@ -86,31 +72,25 @@ async def approve_tool(
         
         config = {"configurable": {"thread_id": str(run.id)}}
         
-        # Fetch current state to append to it
+        # Fetch current state
         current_state_snapshot = await coordinator_app.aget_state(config)
         current_values = current_state_snapshot.values if current_state_snapshot else {}
         
-        results = current_values.get("results", [])
-        messages = current_values.get("messages", [])
-        
-        # Append the tool execution result
-        new_results = results + [{"tool": approval.action_type, "result": tool_result}]
-        new_messages = messages + [{"role": "tool", "name": approval.action_type, "tool_call_id": approval.tool_call_id, "content": str(tool_result)}]
+        # We DO NOT execute the tool here! 
+        # We simply mark the pending_approval_id as cleared and change status to "running".
+        # The LangGraph resume will pick up from the pause node and transition to execute_tools.
         
         try:
-            # Update the persisted graph state using AsyncPostgresSaver
+            # Update the persisted graph state
             await coordinator_app.aupdate_state(
                 config,
                 {
                     "status": "running",
-                    "results": new_results,
-                    "messages": new_messages,
-                    "tool_calls": [] # Clear pending tool calls
+                    "pending_approval_id": None
                 }
             )
             
             # Dispatch background worker to resume graph
-            # Since the state is already updated, we don't need to pass initial_state
             run_coordinator_task.delay({"workflow_run_id": str(run.id)})
             
         except Exception as e:
@@ -118,7 +98,7 @@ async def approve_tool(
             run.status = "failed"
     
     await db.commit()
-    return {"status": approval.status, "result": tool_result}
+    return {"status": approval.status, "message": "Approval granted. Execution resuming in background."}
 
 @router.post("/{approval_id}/reject")
 async def reject_tool(

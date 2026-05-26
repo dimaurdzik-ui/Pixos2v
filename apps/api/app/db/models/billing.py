@@ -43,3 +43,10 @@ class Subscription(Base, TimestampMixin):
     stripe_subscription_id = Column(String, nullable=True)
     status = Column(String(50), nullable=False, default="active")
     current_period_end = Column(String, nullable=True)
+
+class StripeEvent(Base, TimestampMixin):
+    __tablename__ = "stripe_events"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    stripe_event_id = Column(String, unique=True, index=True, nullable=False)
+    event_type = Column(String, nullable=False)
+    status = Column(String(50), default="processed", nullable=False)

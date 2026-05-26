@@ -50,7 +50,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(_ENV_FILE), case_sensitive=True, extra="ignore")
     
     def model_post_init(self, __context: type) -> None:
-        if self.ENVIRONMENT == "production" and self.MOCK_TOOLS is True:
-            raise ValueError("Cannot run with MOCK_TOOLS=True in production environment")
+        if self.ENVIRONMENT == "production":
+            if self.MOCK_TOOLS is True:
+                raise ValueError("Cannot run with MOCK_TOOLS=True in production environment")
+            if self.SYSTEM_SECRET_KEY == "b3k12j3h12bk3j12b3kj12b3kj12b3k1j2b3k12j3hk=":
+                raise ValueError("SYSTEM_SECRET_KEY must be overridden in production environment")
 
 settings = Settings()
