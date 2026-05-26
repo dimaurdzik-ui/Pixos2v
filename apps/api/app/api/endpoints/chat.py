@@ -104,7 +104,6 @@ async def send_message(
     user_msg = Message(
         conversation_id=convo.id,
         sender_type="user",
-        sender_id=current_user.id,
         content=req.content
     )
     db.add(user_msg)
