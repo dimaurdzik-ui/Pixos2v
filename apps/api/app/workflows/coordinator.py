@@ -3,6 +3,7 @@ import asyncio
 import json
 from typing import TypedDict, Any, Optional
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
 from apps.api.app.db.database import AsyncSessionLocal
 from apps.api.app.db.models.workflow import WorkflowStep, WorkflowEvent, WorkflowRun
 from apps.api.app.db.models.policy import PendingApproval
@@ -269,4 +270,5 @@ builder.add_conditional_edges("policy", route_after_policy, {
 builder.add_edge("execute", "agent")
 builder.add_edge("pause", END)
 
-coordinator_app = builder.compile()
+memory = MemorySaver()
+coordinator_app = builder.compile(checkpointer=memory)

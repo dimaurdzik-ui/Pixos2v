@@ -80,6 +80,33 @@ async def approve_tool(
     if run:
         # Instead of 'completed', we mark it as running so a background worker could pick it up
         run.status = "running"
+        
+        # Resume LangGraph (Stateless MVP)
+        from apps.api.app.workflows.coordinator import coordinator_app
+        initial_state = {
+            "workflow_run_id": str(run.id),
+            "task_id": str(run.task_id),
+            "workspace_id": str(workspace.id),
+            "user_id": str(current_user.id),
+            "current_agent_id": str(approval.agent_id),
+            "user_request": f"The tool {approval.action_type} was approved and executed. Result: {tool_result}",
+            "messages": [
+                {"role": "system", "content": "You are Pixos System Coordinator. The pending tool was approved and executed."},
+                {"role": "tool", "name": approval.action_type, "tool_call_id": approval.tool_call_id, "content": str(tool_result)}
+            ],
+            "status": "running",
+            "results": [{"tool": approval.action_type, "result": tool_result}],
+            "tool_calls": []
+        }
+        try:
+            final_state = await coordinator_app.ainvoke(initial_state, config={"configurable": {"thread_id": str(run.id)}})
+            
+            # If the graph generated a new message, we could save it to DB here if we had conversation_id.
+            # For now, just logging the completion.
+            run.status = final_state.get("status", "completed")
+        except Exception as e:
+            print(f"Error resuming graph: {e}")
+            run.status = "failed"
     
     await db.commit()
     return {"status": approval.status, "result": tool_result}

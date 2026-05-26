@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from pydantic import BaseModel
 from .base import BaseAdapter
 from .mock import MockSearchAdapter, MockGmailAdapter
+from .real import RealSearchAdapter, RealGmailAdapter
 from .artifacts import ArtifactsAdapter
 
 class ToolDefinition(BaseModel):
@@ -61,7 +62,7 @@ ToolRegistry.register(ToolDefinition(
         },
         "required": ["query"]
     },
-    adapter_cls=MockSearchAdapter # Would be RealSearchAdapter
+    adapter_cls=RealSearchAdapter # Would be RealSearchAdapter
 ))
 
 ToolRegistry.register(ToolDefinition(
@@ -78,7 +79,7 @@ ToolRegistry.register(ToolDefinition(
         },
         "required": ["to", "subject", "body"]
     },
-    adapter_cls=MockGmailAdapter # Would be RealGmailAdapter
+    adapter_cls=RealGmailAdapter # Would be RealGmailAdapter
 ))
 
 ToolRegistry.register(ToolDefinition(
@@ -92,7 +93,7 @@ ToolRegistry.register(ToolDefinition(
         },
         "required": ["query"]
     },
-    adapter_cls=MockGmailAdapter
+    adapter_cls=RealGmailAdapter
 ))
 
 ToolRegistry.register(ToolDefinition(

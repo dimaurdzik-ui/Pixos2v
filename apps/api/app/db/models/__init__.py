@@ -5,6 +5,7 @@ from .outputs import Artifact
 from .policy import ToolPolicy, PendingApproval
 from .billing import CreditBalance, UsageRecord
 from .agents import Agent, Team, TeamMember, AgentMemory
+from .chat import Conversation, Message
 
 # Export all models so alembic can autogenerate migrations
 __all__ = [
@@ -25,5 +26,7 @@ __all__ = [
     "ToolPolicy",
     "PendingApproval",
     "CreditBalance",
-    "UsageRecord"
+    "UsageRecord",
+    "Conversation",
+    "Message"
 ]

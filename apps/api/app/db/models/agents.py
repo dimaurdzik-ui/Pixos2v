@@ -34,6 +34,7 @@ class Agent(Base, TimestampMixin):
     status = Column(String(50), nullable=False, default="active") # active, inactive, archived
     is_coordinator = Column(Boolean, nullable=False, default=False)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    tools = Column(JSON, nullable=True) # list of tool names like ["web.search", "gmail.send"]
 
     # Relationships
     workspace = relationship("Workspace")
