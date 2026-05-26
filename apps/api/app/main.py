@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from apps.api.app.core.config import settings
-from apps.api.app.api.endpoints import agents, workflows, chat, teams, billing, policies, approvals, artifacts, admin, integrations, stripe_webhooks
+from apps.api.app.api.endpoints import agents, workflows, chat, teams, billing, policies, approvals, artifacts, admin, integrations, stripe_webhooks, oauth
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,6 +42,7 @@ app.include_router(teams.router, prefix=settings.API_V1_STR + "/teams", tags=["t
 app.include_router(billing.router, prefix=settings.API_V1_STR + "/billing", tags=["billing"])
 app.include_router(policies.router, prefix=f"{settings.API_V1_STR}/policies", tags=["Policies"])
 app.include_router(integrations.router, prefix=f"{settings.API_V1_STR}/integrations", tags=["Integrations"])
+app.include_router(oauth.router, prefix=f"{settings.API_V1_STR}/oauth", tags=["OAuth Integrations"])
 app.include_router(stripe_webhooks.router, prefix=f"{settings.API_V1_STR}/billing/stripe", tags=["Stripe Webhooks"])
 
 @app.get("/")

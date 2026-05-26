@@ -3,6 +3,7 @@ from apps.api.app.core.config import settings
 from .registry import ToolRegistry
 from apps.api.app.db.database import AsyncSessionLocal
 from apps.api.app.db.models.integrations import IntegrationConnection
+from apps.api.app.core.security import decrypt_token
 from sqlalchemy import select
 import uuid
 
@@ -28,6 +29,11 @@ class ToolGateway:
                     connection = result.scalar_one_or_none()
                     if not connection:
                         raise ValueError("CONNECTION_REQUIRED")
+                        
+                    # Decrypt the token and inject it into the context for the adapter
+                    if connection.encrypted_token:
+                        plain_token = decrypt_token(connection.encrypted_token)
+                        context["access_token"] = plain_token
 
         adapter = ToolRegistry.get_adapter(tool_name, use_mock=settings.MOCK_TOOLS)
         if not adapter:
