@@ -29,4 +29,22 @@ celery_app.conf.update(
 # Route workflows to a dedicated queue
 celery_app.conf.task_routes = {
     "tasks.worker.run_coordinator_task": {"queue": "celery_workflows"},
+    "tasks.worker.dlq_task": {"queue": "celery_dlq"},
 }
+
+import logging
+from celery.signals import task_failure, task_retry, task_success
+
+logger = logging.getLogger(__name__)
+
+@task_failure.connect
+def handle_task_failure(sender=None, task_id=None, exception=None, **kwargs):
+    logger.error(f"Celery Task Failed! task_id={task_id}, sender={sender.name if sender else 'Unknown'}, error={exception}")
+
+@task_retry.connect
+def handle_task_retry(sender=None, request=None, reason=None, einfo=None, **kwargs):
+    logger.warning(f"Celery Task Retrying! task_id={request.id}, sender={sender.name if sender else 'Unknown'}, reason={reason}")
+
+@task_success.connect
+def handle_task_success(sender=None, result=None, **kwargs):
+    logger.info(f"Celery Task Success! sender={sender.name if sender else 'Unknown'}")

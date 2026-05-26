@@ -9,8 +9,50 @@ def run_async(coro):
     """Helper to run async code inside a synchronous Celery task"""
     return asyncio.get_event_loop().run_until_complete(coro)
 
-@celery_app.task(name="tasks.worker.run_coordinator_task")
-def run_coordinator_task(initial_state: dict):
+@celery_app.task(name="tasks.worker.dlq_task")
+def dlq_task(request, exc, traceback, initial_state: dict):
+    """
+    Dead Letter Queue task for failed workflows that exhausted all retries.
+    """
+    logger.error(f"DLQ TRIGGERED: Task {request.id} failed after retries. Error: {exc}")
+    
+    async def _async_dlq():
+        try:
+            from apps.api.app.db.database import AsyncSessionLocal
+            from apps.api.app.db.models.workflow import WorkflowRun
+            
+            run_id = initial_state.get("workflow_run_id")
+            if not run_id:
+                return
+                
+            async with AsyncSessionLocal() as db:
+                run = await db.get(WorkflowRun, uuid.UUID(run_id))
+                if run:
+                    run.status = "failed"
+                    run.error_message = str(exc)
+                    await db.commit()
+        except Exception as db_exc:
+            logger.error(f"DLQ DB Update failed: {db_exc}")
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_async_dlq())
+    finally:
+        loop.close()
+
+
+@celery_app.task(
+    name="tasks.worker.run_coordinator_task",
+    bind=True,
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    rate_limit="10/m" # Rate limiting: 10 coordinator tasks per minute globally
+)
+def run_coordinator_task(self, initial_state: dict):
     """
     Executes the Coordinator graph as a background Celery task.
     """
@@ -77,14 +119,11 @@ def run_coordinator_task(initial_state: dict):
                     
             return final_state
         except Exception as e:
-            logger.error(f"Coordinator failed: {e}")
-            from apps.api.app.db.database import AsyncSessionLocal
-            from apps.api.app.db.models.workflow import WorkflowRun
-            async with AsyncSessionLocal() as db:
-                run = await db.get(WorkflowRun, uuid.UUID(initial_state["workflow_run_id"]))
-                if run:
-                    run.status = "failed"
-                    await db.commit()
+            logger.error(f"Coordinator failed (Attempt {self.request.retries}/{self.max_retries}): {e}")
+            if self.request.retries >= self.max_retries:
+                # Dispatch to DLQ manually or rely on link_error. 
+                # Let's call DLQ directly if exhausted.
+                dlq_task.delay(self.request, str(e), None, initial_state)
             raise e
 
     # Since Celery uses a multi-processing pool, we can create a new loop safely
