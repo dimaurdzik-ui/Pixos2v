@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from apps.api.app.db.database import get_db
 from apps.api.app.db.models.core import User, Workspace, AuditLog, WorkspaceMember
 from apps.api.app.db.models.agents import Agent
-from apps.api.app.db.models.workflow import WorkflowExecution
+from apps.api.app.db.models.workflow import WorkflowRun
 from apps.api.app.db.models.system import SystemConfig
 from apps.api.app.db.models.billing import StripeEvent
 from apps.api.app.api.deps import require_super_admin
@@ -94,10 +94,10 @@ async def get_overview(
     agents_count = await db.scalar(select(func.count()).select_from(Agent))
     
     running_workflows = await db.scalar(
-        select(func.count()).select_from(WorkflowExecution).where(WorkflowExecution.status == "running")
+        select(func.count()).select_from(WorkflowRun).where(WorkflowRun.status == "running")
     )
     failed_workflows = await db.scalar(
-        select(func.count()).select_from(WorkflowExecution).where(WorkflowExecution.status == "failed")
+        select(func.count()).select_from(WorkflowRun).where(WorkflowRun.status == "failed")
     )
     
     return AdminOverview(
@@ -255,9 +255,9 @@ async def list_all_workflows(
     db: AsyncSession = Depends(get_db),
     _ = Depends(require_super_admin)
 ):
-    stmt = select(WorkflowExecution).order_by(desc(WorkflowExecution.created_at)).limit(100)
+    stmt = select(WorkflowRun).order_by(desc(WorkflowRun.created_at)).limit(100)
     if status:
-        stmt = stmt.where(WorkflowExecution.status == status)
+        stmt = stmt.where(WorkflowRun.status == status)
         
     result = await db.execute(stmt)
     wfs = result.scalars().all()
