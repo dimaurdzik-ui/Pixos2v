@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 from pathlib import Path
+import os
 
 _ENV_FILE = Path(__file__).parent.parent.parent / ".env"  # apps/api/.env
 
