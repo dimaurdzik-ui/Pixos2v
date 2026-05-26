@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -11,7 +11,7 @@ from apps.api.app.db.models.core import Workspace, User
 from apps.api.app.db.models.agents import Agent
 from apps.api.app.db.models.workflow import Task as DBTask, WorkflowRun, WorkflowStep, WorkflowEvent
 from apps.api.app.api.deps import get_current_workspace, get_current_user, require_permission
-from apps.api.app.workflows.coordinator import coordinator_app
+from apps.api.app.tasks.worker import run_coordinator_task
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -24,38 +24,9 @@ class TaskResponse(BaseModel):
     workflow_run_id: str
     status: str
 
-async def run_coordinator_background(initial_state: dict):
-    try:
-        final_state = await coordinator_app.ainvoke(initial_state)
-        
-        # Deduct credits if completed
-        if final_state.get("status") == "completed":
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(select(CreditBalance).where(CreditBalance.workspace_id == initial_state["workspace_id"]))
-                balance = result.scalars().first()
-                if balance:
-                    balance.balance -= 10
-                    from apps.api.app.db.models.billing import UsageRecord
-                    usage = UsageRecord(
-                        workspace_id=initial_state["workspace_id"],
-                        workflow_run_id=initial_state["workflow_run_id"],
-                        cost=10
-                    )
-                    db.add(usage)
-                    await db.commit()
-                    
-    except Exception as e:
-        logger.error(f"Coordinator failed: {e}")
-        async with AsyncSessionLocal() as db:
-            run = await db.get(WorkflowRun, uuid.UUID(initial_state["workflow_run_id"]))
-            if run:
-                run.status = "failed"
-                await db.commit()
-
 @router.post("/tasks", response_model=TaskResponse)
 async def create_task(
     task_in: TaskCreate,
-    background_tasks: BackgroundTasks,
     workspace: Workspace = Depends(get_current_workspace),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -110,7 +81,7 @@ async def create_task(
     }
     
     # 4. Trigger background task
-    background_tasks.add_task(run_coordinator_background, initial_state)
+    run_coordinator_task.delay(initial_state)
     
     return {"task_id": str(new_task.id), "workflow_run_id": str(run.id), "status": run.status}
 

@@ -176,7 +176,8 @@ async def create_agent_task(
     task_in: AgentTaskCreate,
     workspace: Workspace = Depends(get_current_workspace),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _ = Depends(require_permission("run_workflows"))
 ):
     try:
         aid = uuid.UUID(agent_id)
@@ -219,7 +220,8 @@ async def create_agent_chat(
     chat_in: AgentChatCreate,
     workspace: Workspace = Depends(get_current_workspace),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _ = Depends(require_permission("run_workflows"))
 ):
     try:
         aid = uuid.UUID(agent_id)

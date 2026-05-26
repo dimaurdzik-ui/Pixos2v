@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     SUPABASE_URL: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None
 
+    # Encryption (Fernet key)
+    SYSTEM_SECRET_KEY: str = os.environ.get("SYSTEM_SECRET_KEY", "b3k12j3h12bk3j12b3kj12b3kj12b3k1j2b3k12j3hk=")
+
+    # Stripe Billing
+    STRIPE_SECRET_KEY: str | None = os.environ.get("STRIPE_SECRET_KEY")
+    STRIPE_WEBHOOK_SECRET: str | None = os.environ.get("STRIPE_WEBHOOK_SECRET")
+
     # Clerk (Auth)
     CLERK_SECRET_KEY: Optional[str] = None
     CLERK_ISSUER_URL: Optional[str] = None

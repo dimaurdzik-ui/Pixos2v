@@ -5,14 +5,33 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CreditCard, Zap, Download, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
-import { getBillingBalance, getBillingHistory } from "@/lib/api";
+import { getBillingBalance, getBillingHistory, createCheckoutSession } from "@/lib/api";
+import { useSearchParams, useRouter } from "next/navigation";
+import toast from "react-hot-toast";
 
 export default function BillingPage() {
   const [balance, setBalance] = useState<number | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   useEffect(() => {
+    // Check for Stripe redirect success/cancel
+    const success = searchParams.get("success");
+    const canceled = searchParams.get("canceled");
+    
+    if (success) {
+      toast.success("Payment successful! Credits added to your account.");
+      router.replace("/billing");
+    }
+    
+    if (canceled) {
+      toast.error("Payment was canceled.");
+      router.replace("/billing");
+    }
     const fetchData = async () => {
       try {
         const [balData, histData] = await Promise.all([
@@ -38,6 +57,20 @@ export default function BillingPage() {
     );
   }
 
+  const handleBuyCredits = async (amountUsd: number) => {
+    setCheckoutLoading(true);
+    try {
+      const res = await createCheckoutSession(amountUsd);
+      if (res.url) {
+        window.location.href = res.url;
+      }
+    } catch (error: any) {
+      console.error("Checkout error:", error);
+      toast.error(error.response?.data?.detail || "Failed to initiate checkout");
+      setCheckoutLoading(false);
+    }
+  };
+
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
@@ -45,9 +78,21 @@ export default function BillingPage() {
           <h2 className="text-3xl font-bold tracking-tight">Billing & Usage</h2>
           <p className="text-muted-foreground mt-1">Manage your credit balance and track API usage.</p>
         </div>
-        <Button>
-          <CreditCard className="mr-2 h-4 w-4" /> Add Credits
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => handleBuyCredits(10)} 
+            disabled={checkoutLoading}
+          >
+            <CreditCard className="mr-2 h-4 w-4" /> $10 (1k cr)
+          </Button>
+          <Button 
+            onClick={() => handleBuyCredits(50)} 
+            disabled={checkoutLoading}
+          >
+            <Zap className="mr-2 h-4 w-4" /> Buy 5k Credits ($50)
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">

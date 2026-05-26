@@ -3,7 +3,9 @@ import asyncio
 import json
 from typing import TypedDict, Any, Optional
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
+import os
 from apps.api.app.db.database import AsyncSessionLocal
 from apps.api.app.db.models.workflow import WorkflowStep, WorkflowEvent, WorkflowRun
 from apps.api.app.db.models.policy import PendingApproval
@@ -68,6 +70,42 @@ async def agent_execute(state: CoordinatorState):
     if settings.OPENAI_API_KEY:
         schemas = ToolRegistry.get_all_schemas()
         
+        # 1. DYNAMIC AGENT DISCOVERY
+        # Fetch active agents in the workspace to allow delegation
+        async with AsyncSessionLocal() as db:
+            from apps.api.app.db.models.agents import Agent
+            from sqlalchemy import select
+            
+            result = await db.execute(
+                select(Agent).where(
+                    Agent.workspace_id == uuid.UUID(state["workspace_id"]),
+                    Agent.status == "active",
+                    Agent.is_coordinator == False
+                )
+            )
+            available_agents = result.scalars().all()
+            
+            for agent in available_agents:
+                clean_name = "".join(c if c.isalnum() else "_" for c in agent.name.lower())
+                agent_tool = {
+                    "type": "function",
+                    "function": {
+                        "name": f"delegate_to_agent_{str(agent.id)}",
+                        "description": f"Delegate a task to {agent.name}. Role: {agent.role}. {agent.description or ''}. Use this when you need specialized help from this team member.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "task": {
+                                    "type": "string",
+                                    "description": "Detailed instructions on what you want this agent to do."
+                                }
+                            },
+                            "required": ["task"]
+                        }
+                    }
+                }
+                schemas.append(agent_tool)
+        
         try:
             response = await litellm.acompletion(
                 model="gpt-4o",
@@ -76,6 +114,15 @@ async def agent_execute(state: CoordinatorState):
                 tool_choice="auto"
             )
             message = response.choices[0].message
+            
+            # Calculate real LLM cost
+            try:
+                cost = litellm.completion_cost(completion_response=response)
+                # 1 cent = 1 credit (e.g. $0.001 = 0.1 credits)
+                added_cost = cost * 100 
+                state["total_cost"] = state.get("total_cost", 0) + added_cost
+            except Exception as e:
+                print(f"Cost calculation error: {e}")
             
             # Append assistant message to state
             assistant_msg = {"role": "assistant"}
@@ -212,12 +259,37 @@ async def execute_tools(state: CoordinatorState):
         tool = tc["tool"]
         tool_call_id = tc.get("id", "unknown")
         try:
-            # Delegate execution to the ToolGateway
-            context = {
-                "workspace_id": state.get("workspace_id"),
-                "workflow_run_id": state.get("workflow_run_id")
-            }
-            tool_result = await ToolGateway.execute(tool, tc.get("payload", {}), context)
+            # 2. SUB-AGENT EXECUTION
+            if tool.startswith("delegate_to_agent_"):
+                agent_id_str = tool.replace("delegate_to_agent_", "")
+                
+                async with AsyncSessionLocal() as db:
+                    from apps.api.app.db.models.agents import Agent
+                    agent = await db.get(Agent, uuid.UUID(agent_id_str))
+                    
+                    if not agent:
+                        tool_result = f"Error: Agent with ID {agent_id_str} not found or unavailable."
+                    else:
+                        # Log delegation event
+                        if state.get("workflow_step_id"):
+                            event = WorkflowEvent(
+                                workflow_run_id=uuid.UUID(state["workflow_run_id"]),
+                                workflow_step_id=uuid.UUID(state["workflow_step_id"]),
+                                event_type="agent_delegation",
+                                payload={"agent_id": str(agent.id), "agent_name": agent.name, "task": tc.get("payload", {}).get("task")}
+                            )
+                            db.add(event)
+                            await db.commit()
+                            
+                        # Execute Sub-Agent
+                        tool_result = await execute_sub_agent(agent, tc.get("payload", {}).get("task", ""), messages, state)
+            else:
+                # Delegate execution to the ToolGateway
+                context = {
+                    "workspace_id": state.get("workspace_id"),
+                    "workflow_run_id": state.get("workflow_run_id")
+                }
+                tool_result = await ToolGateway.execute(tool, tc.get("payload", {}), context)
         except Exception as e:
             tool_result = f"Error executing tool {tool}: {str(e)}"
             
@@ -250,6 +322,73 @@ async def execute_tools(state: CoordinatorState):
             
     return {"results": results, "messages": messages, "status": "running"}
 
+async def execute_sub_agent(agent, task: str, coordinator_history: list[dict], state: CoordinatorState) -> str:
+    """Executes a sub-agent loop for delegation"""
+    from apps.api.app.core.config import settings
+    from apps.api.app.services.tools.registry import ToolRegistry
+    from apps.api.app.services.tools.gateway import ToolGateway
+    import litellm
+    
+    if not settings.OPENAI_API_KEY:
+        return f"Mock Sub-Agent {agent.name} executed task: {task}"
+        
+    # Build context for sub-agent
+    sub_messages = [
+        {"role": "system", "content": agent.system_prompt or f"You are {agent.name}, a {agent.role}. Fulfill the delegated task."}
+    ]
+    
+    # Optionally append summary of previous messages or the exact task
+    sub_messages.append({"role": "user", "content": f"Delegated Task from Coordinator: {task}"})
+    
+    # Load sub-agent tools
+    schemas = []
+    agent_tools = agent.tools or []
+    all_schemas = ToolRegistry.get_all_schemas()
+    for s in all_schemas:
+        if s["function"]["name"] in agent_tools:
+            schemas.append(s)
+            
+    try:
+        # One-shot or loop? MVP: One-shot LLM call with tools
+        response = await litellm.acompletion(
+            model=agent.model or "gpt-4o",
+            messages=sub_messages,
+            tools=schemas if schemas else None,
+            tool_choice="auto" if schemas else None
+        )
+        message = response.choices[0].message
+        
+        # Calculate real LLM cost for sub-agent
+        try:
+            cost = litellm.completion_cost(completion_response=response)
+            added_cost = cost * 100 
+            state["total_cost"] = state.get("total_cost", 0) + added_cost
+        except Exception as e:
+            print(f"Cost calculation error: {e}")
+        
+        # If the sub-agent needs to call tools itself, we can execute them here
+        if hasattr(message, "tool_calls") and message.tool_calls:
+            # MVP: Execute the tools synchronously and return the result
+            results_text = []
+            for tc in message.tool_calls:
+                try:
+                    tool_name = tc.function.name
+                    payload = json.loads(tc.function.arguments)
+                    context = {
+                        "workspace_id": state.get("workspace_id"),
+                        "workflow_run_id": state.get("workflow_run_id")
+                    }
+                    tr = await ToolGateway.execute(tool_name, payload, context)
+                    results_text.append(f"Used {tool_name}: {tr}")
+                except Exception as ex:
+                    results_text.append(f"Tool {tool_name} failed: {ex}")
+                    
+            return f"Agent {agent.name} completed task. Actions taken:\n" + "\n".join(results_text)
+            
+        return f"Agent {agent.name} says: {message.content}"
+    except Exception as e:
+        return f"Error executing Sub-Agent {agent.name}: {e}"
+
 # Build Graph
 builder = StateGraph(CoordinatorState)
 
@@ -270,5 +409,29 @@ builder.add_conditional_edges("policy", route_after_policy, {
 builder.add_edge("execute", "agent")
 builder.add_edge("pause", END)
 
-memory = MemorySaver()
-coordinator_app = builder.compile(checkpointer=memory)
+# Create a connection pool for the checkpointer
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", 
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/pixos"
+)
+# AsyncPostgresSaver expects psycopg connection string (postgresql:// not postgresql+asyncpg://)
+pg_url = DATABASE_URL.replace("+asyncpg", "")
+if pg_url.startswith("postgres://"):
+    pg_url = pg_url.replace("postgres://", "postgresql://", 1)
+
+# We initialize the checkpointer in a lazy way or just create the pool here.
+# Since this module might be imported before the loop runs, we use a global pool 
+# and initialize the saver asynchronously. But LangGraph compile() allows passing 
+# the checkpointer directly. Let's create a global pool.
+pool = AsyncConnectionPool(
+    conninfo=pg_url,
+    max_size=20,
+    kwargs={"autocommit": True, "prepare_threshold": 0}
+)
+
+checkpointer = AsyncPostgresSaver(pool)
+
+# Note: AsyncPostgresSaver.setup() needs to be called somewhere to create tables.
+# We assume it's called during app startup.
+
+coordinator_app = builder.compile(checkpointer=checkpointer)

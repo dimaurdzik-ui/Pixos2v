@@ -146,6 +146,15 @@ export const getBillingHistory = async () => {
   return response.data;
 };
 
+export const createCheckoutSession = async (amountUsd: number) => {
+  const response = await api.post('/api/v1/billing/checkout', {
+    amount_usd: amountUsd,
+    success_url: window.location.origin + '/billing?success=true',
+    cancel_url: window.location.origin + '/billing?canceled=true',
+  });
+  return response.data;
+};
+
 // ─── Policy endpoints ────────────────────────────────────────────
 export const getPolicies = async () => {
   const response = await api.get('/api/v1/policies');

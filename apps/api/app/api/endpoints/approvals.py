@@ -78,32 +78,41 @@ async def approve_tool(
     # Update workflow run status
     run = await db.get(WorkflowRun, approval.workflow_run_id)
     if run:
-        # Instead of 'completed', we mark it as running so a background worker could pick it up
         run.status = "running"
         
-        # Resume LangGraph (Stateless MVP)
+        # Proper LangGraph State Resume
         from apps.api.app.workflows.coordinator import coordinator_app
-        initial_state = {
-            "workflow_run_id": str(run.id),
-            "task_id": str(run.task_id),
-            "workspace_id": str(workspace.id),
-            "user_id": str(current_user.id),
-            "current_agent_id": str(approval.agent_id),
-            "user_request": f"The tool {approval.action_type} was approved and executed. Result: {tool_result}",
-            "messages": [
-                {"role": "system", "content": "You are Pixos System Coordinator. The pending tool was approved and executed."},
-                {"role": "tool", "name": approval.action_type, "tool_call_id": approval.tool_call_id, "content": str(tool_result)}
-            ],
-            "status": "running",
-            "results": [{"tool": approval.action_type, "result": tool_result}],
-            "tool_calls": []
-        }
+        from apps.api.app.tasks.worker import run_coordinator_task
+        
+        config = {"configurable": {"thread_id": str(run.id)}}
+        
+        # Fetch current state to append to it
+        current_state_snapshot = await coordinator_app.aget_state(config)
+        current_values = current_state_snapshot.values if current_state_snapshot else {}
+        
+        results = current_values.get("results", [])
+        messages = current_values.get("messages", [])
+        
+        # Append the tool execution result
+        new_results = results + [{"tool": approval.action_type, "result": tool_result}]
+        new_messages = messages + [{"role": "tool", "name": approval.action_type, "tool_call_id": approval.tool_call_id, "content": str(tool_result)}]
+        
         try:
-            final_state = await coordinator_app.ainvoke(initial_state, config={"configurable": {"thread_id": str(run.id)}})
+            # Update the persisted graph state using AsyncPostgresSaver
+            await coordinator_app.aupdate_state(
+                config,
+                {
+                    "status": "running",
+                    "results": new_results,
+                    "messages": new_messages,
+                    "tool_calls": [] # Clear pending tool calls
+                }
+            )
             
-            # If the graph generated a new message, we could save it to DB here if we had conversation_id.
-            # For now, just logging the completion.
-            run.status = final_state.get("status", "completed")
+            # Dispatch background worker to resume graph
+            # Since the state is already updated, we don't need to pass initial_state
+            run_coordinator_task.delay({"workflow_run_id": str(run.id)})
+            
         except Exception as e:
             print(f"Error resuming graph: {e}")
             run.status = "failed"
