@@ -3,7 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { UserButton, SignInButton, useUser } from '@clerk/nextjs';
-import { 
+import { useState, useEffect } from 'react';
+import { getCurrentUser } from '@/lib/api';
+import {
   Briefcase, 
   Users, 
   Activity, 
@@ -29,12 +31,22 @@ const navigation = [
 const secondaryNavigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Billing', href: '/billing', icon: CreditCard },
-  { name: 'Admin', href: '/admin', icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname() || '';
   const { isSignedIn, isLoaded } = useUser();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (isSignedIn) {
+      getCurrentUser().then(user => {
+        if (user && user.is_super_admin) {
+          setIsAdmin(true);
+        }
+      }).catch(err => console.error("Failed to fetch user role", err));
+    }
+  }, [isSignedIn]);
 
   return (
     <div className="flex flex-col w-64 bg-sidebar border-r border-border h-screen">
@@ -97,6 +109,27 @@ export function Sidebar() {
                 </Link>
               );
             })}
+            
+            {isAdmin && (
+              <Link
+                href="/admin"
+                className={cn(
+                  pathname.startsWith('/admin')
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
+                  'group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors'
+                )}
+              >
+                <Settings
+                  className={cn(
+                    pathname.startsWith('/admin') ? 'text-sidebar-accent-foreground' : 'text-muted-foreground',
+                    'mr-3 flex-shrink-0 h-5 w-5 transition-colors'
+                  )}
+                  aria-hidden="true"
+                />
+                Admin
+              </Link>
+            )}
           </div>
         </div>
       </div>

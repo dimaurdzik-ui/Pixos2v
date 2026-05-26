@@ -50,6 +50,16 @@ export const createWorkflowTask = async (description: string) => {
   return response.data;
 };
 
+export const getWorkspaces = async () => {
+  const response = await api.get('/api/v1/teams/workspaces');
+  return response.data;
+};
+
+export const getCurrentUser = async () => {
+  const response = await api.get('/api/v1/users/me');
+  return response.data;
+};
+
 export const getWorkflows = async () => {
   const response = await api.get('/api/v1/workflows');
   return response.data;
@@ -174,11 +184,49 @@ export const getSystemConfig = async () => {
   return response.data;
 };
 
-export const updateSystemConfig = async (keyName: string, value: string) => {
-  const response = await api.post('/api/v1/admin/system-config', {
-    key_name: keyName,
-    value: value,
-  });
+export const updateSystemConfig = async (key_name: string, value: string) => {
+  const response = await api.post('/api/v1/admin/system-config', { key_name, value });
+  return response.data;
+};
+
+// Admin Endpoints
+export const getAdminOverview = async () => {
+  const response = await api.get('/api/v1/admin/overview');
+  return response.data;
+};
+
+export const getAdminWorkspaces = async () => {
+  const response = await api.get('/api/v1/admin/workspaces');
+  return response.data;
+};
+
+export const disableWorkspace = async (id: string) => {
+  const response = await api.post(`/api/v1/admin/workspaces/${id}/disable`);
+  return response.data;
+};
+
+export const enableWorkspace = async (id: string) => {
+  const response = await api.post(`/api/v1/admin/workspaces/${id}/enable`);
+  return response.data;
+};
+
+export const getAdminUsers = async () => {
+  const response = await api.get('/api/v1/admin/users');
+  return response.data;
+};
+
+export const getAdminAuditLogs = async (action?: string) => {
+  const response = await api.get('/api/v1/admin/audit', { params: { action } });
+  return response.data;
+};
+
+export const getAdminWorkflows = async (status?: string) => {
+  const response = await api.get('/api/v1/admin/workflows', { params: { status } });
+  return response.data;
+};
+
+export const getProviderHealth = async () => {
+  const response = await api.get('/api/v1/admin/provider-health');
   return response.data;
 };
 
