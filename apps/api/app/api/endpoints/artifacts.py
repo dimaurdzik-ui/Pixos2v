@@ -12,7 +12,6 @@ router = APIRouter()
 
 @router.get("")
 async def list_artifacts(
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db)
 ):
@@ -39,7 +38,6 @@ async def list_artifacts(
 @router.get("/{artifact_id}")
 async def get_artifact(
     artifact_id: str,
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db)
 ):

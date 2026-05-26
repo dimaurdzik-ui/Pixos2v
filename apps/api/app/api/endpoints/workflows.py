@@ -56,7 +56,6 @@ async def run_coordinator_background(initial_state: dict):
 async def create_task(
     task_in: TaskCreate,
     background_tasks: BackgroundTasks,
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -118,7 +117,6 @@ async def create_task(
 @router.get("/workflows/{run_id}")
 async def get_workflow_status(
     run_id: str,
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db)
 ):

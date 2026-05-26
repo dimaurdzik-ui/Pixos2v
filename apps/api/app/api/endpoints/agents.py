@@ -21,7 +21,6 @@ class AgentCreate(BaseModel):
 
 @router.get("")
 async def get_agents(
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db)
 ):
@@ -46,7 +45,6 @@ async def get_agents(
 @router.post("", response_model=dict)
 async def create_agent(
     agent_in: AgentCreate,
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db),
     _ = Depends(require_permission("manage_agents"))
@@ -74,7 +72,6 @@ async def create_agent(
 @router.delete("/{agent_id}")
 async def delete_agent(
     agent_id: str,
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db),
     _ = Depends(require_permission("manage_agents"))

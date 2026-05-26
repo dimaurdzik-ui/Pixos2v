@@ -12,7 +12,6 @@ router = APIRouter()
 
 @router.get("/balance")
 async def get_balance(
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db)
 ):
@@ -26,7 +25,6 @@ async def get_balance(
 
 @router.get("/history")
 async def get_history(
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db)
 ):

@@ -26,6 +26,7 @@ class Workspace(Base, TimestampMixin):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 class WorkspaceMember(Base, TimestampMixin):
     __tablename__ = "workspace_members"
@@ -40,5 +41,7 @@ class AuditLog(Base, TimestampMixin):
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     action = Column(String, nullable=False)
+    target_id = Column(String, nullable=True)
+    details = Column(JSON, nullable=True)
     ip_address = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)

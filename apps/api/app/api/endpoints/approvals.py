@@ -13,7 +13,6 @@ router = APIRouter()
 
 @router.get("")
 async def get_approvals(
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db)
 ):
@@ -28,7 +27,6 @@ async def get_approvals(
 @router.post("/{approval_id}/approve")
 async def approve_tool(
     approval_id: str,
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -89,7 +87,6 @@ async def approve_tool(
 @router.post("/{approval_id}/reject")
 async def reject_tool(
     approval_id: str,
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

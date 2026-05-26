@@ -18,7 +18,6 @@ class TeamCreate(BaseModel):
 
 @router.get("")
 async def get_teams(
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db)
 ):
@@ -40,7 +39,6 @@ async def get_teams(
 @router.post("", response_model=dict)
 async def create_team(
     team_in: TeamCreate,
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db),
     _ = Depends(require_permission("manage_teams"))
@@ -63,7 +61,6 @@ async def create_team(
 @router.delete("/{team_id}")
 async def delete_team(
     team_id: str,
-    workspace_id: str = Header(...),
     workspace: Workspace = Depends(get_current_workspace),
     db: AsyncSession = Depends(get_db),
     _ = Depends(require_permission("manage_teams"))
